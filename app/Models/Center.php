@@ -1,0 +1,36 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+
+class Center extends Model
+{
+    protected $fillable = ['code', 'name', 'color', 'is_active'];
+
+    protected $casts = ['is_active' => 'boolean'];
+
+    public function projects(): BelongsToMany
+    {
+        return $this->belongsToMany(Project::class, 'center_projects')
+            ->withPivot('is_active')
+            ->withTimestamps();
+    }
+
+    public function devices(): HasMany
+    {
+        return $this->hasMany(Device::class);
+    }
+
+    public function beneficiaries(): HasMany
+    {
+        return $this->hasMany(Beneficiary::class, 'registration_center_id');
+    }
+
+    public function receptionVisits(): HasMany
+    {
+        return $this->hasMany(ReceptionVisit::class);
+    }
+}
