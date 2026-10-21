@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\BeneficiaryResource\Pages;
 use App\Models\Beneficiary;
 use App\Models\Center;
@@ -16,6 +17,8 @@ use Filament\Tables\Table;
 
 class BeneficiaryResource extends Resource
 {
+    use RestrictsToAdminRoles;
+
     protected static ?string $model = Beneficiary::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-users';
     protected static string|\UnitEnum|null $navigationGroup = 'المستفيدون';

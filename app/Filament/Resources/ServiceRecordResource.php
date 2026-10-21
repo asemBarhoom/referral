@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\ServiceRecordResource\Pages;
 use App\Models\Center;
 use App\Models\Project;
@@ -14,6 +15,8 @@ use Filament\Tables\Table;
 
 class ServiceRecordResource extends Resource
 {
+    use RestrictsToAdminRoles;
+
     protected static ?string $model = ServiceRecord::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-check-circle';
     protected static string|\UnitEnum|null $navigationGroup = 'المراجعة';

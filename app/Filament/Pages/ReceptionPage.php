@@ -9,11 +9,23 @@ use App\Models\IdentityType;
 use App\Models\Project;
 use App\Services\BeneficiaryMatchService;
 use App\Services\ReceptionService;
+use App\Models\User;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 
 class ReceptionPage extends Page
 {
+    public static function canAccess(): bool
+    {
+        $role = auth()->user()?->role;
+        return in_array($role, [
+            User::ROLE_RECEPTION,
+            User::ROLE_CENTER_ADMIN,
+            User::ROLE_DASHBOARD_ADMIN,
+            'super_admin',
+        ]);
+    }
+
     protected string $view = 'filament.pages.reception-page';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-plus';
     protected static string|\UnitEnum|null $navigationGroup = 'التشغيل';

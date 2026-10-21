@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Filament\Concerns\RestrictsToDashboardAdmin;
 use App\Filament\Resources\DeviceResource\Pages;
 use App\Models\Center;
 use App\Models\Device;
@@ -15,6 +16,8 @@ use Illuminate\Support\Str;
 
 class DeviceResource extends Resource
 {
+    use RestrictsToDashboardAdmin;
+
     protected static ?string $model = Device::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-device-tablet';
     protected static string|\UnitEnum|null $navigationGroup = 'الإعدادات';

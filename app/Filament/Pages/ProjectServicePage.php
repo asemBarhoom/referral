@@ -6,6 +6,7 @@ use App\Models\Center;
 use App\Models\Project;
 use App\Models\ReasonOption;
 use App\Models\ServiceRecord;
+use App\Models\User;
 use App\Services\BeneficiaryMatchService;
 use App\Services\ProjectServiceConfirm;
 use Filament\Notifications\Notification;
@@ -13,6 +14,17 @@ use Filament\Pages\Page;
 
 class ProjectServicePage extends Page
 {
+    public static function canAccess(): bool
+    {
+        $role = auth()->user()?->role;
+        return in_array($role, [
+            User::ROLE_PROJECT_STAFF,
+            User::ROLE_CENTER_ADMIN,
+            User::ROLE_DASHBOARD_ADMIN,
+            'super_admin',
+        ]);
+    }
+
     protected string $view = 'filament.pages.project-service-page';
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-check-badge';
     protected static string|\UnitEnum|null $navigationGroup = 'التشغيل';

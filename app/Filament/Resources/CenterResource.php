@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use App\Filament\Concerns\RestrictsToDashboardAdmin;
 use App\Filament\Resources\CenterResource\Pages;
 use App\Models\Center;
 use Filament\Forms;
@@ -13,6 +14,8 @@ use Filament\Tables\Table;
 
 class CenterResource extends Resource
 {
+    use RestrictsToDashboardAdmin;
+
     protected static ?string $model = Center::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-office';
     protected static string|\UnitEnum|null $navigationGroup = 'الإعدادات';
