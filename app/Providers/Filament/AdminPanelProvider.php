@@ -28,8 +28,15 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login(Login::class)
+            ->brandName('جمعية أرض الإنسان')
+            ->brandLogo(fn () => view('filament.brand'))
+            ->brandLogoHeight(fn () => auth()->check() ? '2.5rem' : '7rem')
+            ->favicon(asset('images/logo-mark.png'))
             ->colors([
-                'primary' => Color::Amber,
+                // Brand colors sampled from the Ard El Insan logo (v3 palette keeps the exact shade at 500)
+                'primary' => Color::generateV3Palette('#813689'),
+                'success' => Color::generateV3Palette('#2E8038'),
+                'warning' => Color::generateV3Palette('#EBBD68'),
                 // Center colors, referenced by centers.color
                 'blue'    => Color::Blue,
                 'green'   => Color::Green,
