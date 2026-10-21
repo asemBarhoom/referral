@@ -9,8 +9,11 @@ use App\Models\Entry;
 use App\Models\EntryProject;
 use App\Models\Setting;
 use App\Models\User;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Support\Enums\Size;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -195,6 +198,106 @@ class EntryPage extends Page
         ])->projects()->sync($projectIds);
     }
 
+    public function transferAction(): Action
+    {
+        return Action::make('transfer')
+            ->label('تحويل لمشروع آخر')
+            ->icon('heroicon-m-arrows-right-left')
+            ->color('gray')
+            ->size(Size::ExtraLarge)
+            ->visible(fn () => $this->searched && $this->entryType() === Entry::TYPE_POINT)
+            ->modalHeading('تحويل الحالة لمشروع آخر')
+            ->modalDescription(fn () => 'رقم الهوية ' . $this->identity_number . ' — يُستبدل مشروعك في تحويل اليوم بالمشروع المختار.')
+            ->modalSubmitActionLabel('تحويل')
+            ->modalWidth('md')
+            ->schema([
+                Select::make('project_id')
+                    ->label('المشروع')
+                    ->options(fn () => $this->getTransferTargets())
+                    ->required(),
+            ])
+            ->action(fn (array $data) => $this->transfer((int) $data['project_id']));
+    }
+
+    private function transfer(int $targetId): void
+    {
+        $targets  = $this->getTransferTargets();
+        $centerId = $this->userCenterId();
+
+        if (! $centerId || ! array_key_exists($targetId, $targets) || strlen((string) $this->identity_number) !== 9) {
+            Notification::make()->title('تعذّر التحويل')->danger()->send();
+            return;
+        }
+
+        DB::transaction(function () use ($targetId, $centerId) {
+            $now = Carbon::now('Asia/Gaza');
+
+            $beneficiary = $this->found_beneficiary ?? Beneficiary::firstOrCreate(
+                ['identity_number' => $this->identity_number],
+                ['name' => filled($this->name) ? $this->name : null, 'first_entry_date' => $now->toDateString()],
+            );
+
+            $referral = $this->todayReferralQuery($beneficiary->id, $centerId)->first();
+            $old = $referral
+                ? $referral->projects()->pluck('projects.id')->map(fn ($id) => (string) $id)->sort()->values()->all()
+                : [];
+
+            $myProjectIds = auth()->user()->projects()->pluck('projects.id')->map(fn ($id) => (string) $id);
+            $new = collect($old)->diff($myProjectIds)->push((string) $targetId)->unique()->sort()->values()->all();
+
+            $referral ??= Entry::create([
+                'beneficiary_id' => $beneficiary->id,
+                'center_id'      => $centerId,
+                'staff_id'       => auth()->id(),
+                'type'           => Entry::TYPE_RECEPTION,
+                'is_new'         => $beneficiary->wasRecentlyCreated,
+                'entry_time'     => $now,
+                'entry_date'     => $now->toDateString(),
+            ]);
+
+            $referral->projects()->sync($new);
+            $this->log('transferred_case', $referral, ['project_ids' => $old], ['project_ids' => $new, 'to_project_id' => $targetId]);
+        });
+
+        Notification::make()->title('تم تحويل الحالة إلى ' . $targets[$targetId])->success()->send();
+        $this->resetForm();
+    }
+
+    public function getTransferTargets(): array
+    {
+        $center = Center::find($this->userCenterId());
+        if (! $center) {
+            return [];
+        }
+
+        return $center->projects()
+            ->where('projects.is_active', true)
+            ->wherePivot('is_active', true)
+            ->whereNotIn('projects.id', auth()->user()->projects()->pluck('projects.id'))
+            ->orderBy('projects.display_order')
+            ->pluck('projects.name', 'projects.id')
+            ->toArray();
+    }
+
+    public function getTodayReferralProjects(): array
+    {
+        if (! $this->found_beneficiary || ! $this->userCenterId()) {
+            return [];
+        }
+
+        return $this->todayReferralQuery($this->found_beneficiary->id, $this->userCenterId())
+            ->first()?->projects()->orderBy('display_order')->pluck('name')->all() ?? [];
+    }
+
+    private function todayReferralQuery(int $beneficiaryId, int $centerId)
+    {
+        return Entry::where('beneficiary_id', $beneficiaryId)
+            ->where('center_id', $centerId)
+            ->where('entry_date', $this->today())
+            ->where('type', Entry::TYPE_RECEPTION)
+            ->latest('entry_time');
+    }
+
     public function getAvailableProjects(): array
     {
         $center = Center::find($this->userCenterId());
@@ -233,6 +336,7 @@ class EntryPage extends Page
     public function getTodayStats(): array
     {
         $query = Entry::where('staff_id', auth()->id())
+            ->where('type', $this->entryType())
             ->where('entry_date', $this->today())
             ->when($this->userCenterId(), fn ($q, $centerId) => $q->where('center_id', $centerId));
 

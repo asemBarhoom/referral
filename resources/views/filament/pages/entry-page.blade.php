@@ -81,6 +81,21 @@
                     @endif
                 </div>
 
+                @if ($found_beneficiary && $this->transferAction->isVisible())
+                    @php $referredTo = $this->getTodayReferralProjects(); @endphp
+                    <div class="ep-referral">
+                        <x-filament::icon icon="heroicon-m-arrow-turn-down-left" class="ep-referral-icon" />
+                        @if ($referredTo)
+                            <span>محوّلة اليوم إلى:</span>
+                            @foreach ($referredTo as $pname)
+                                <x-filament::badge color="gray">{{ $pname }}</x-filament::badge>
+                            @endforeach
+                        @else
+                            <span>لا يوجد تحويل من الاستقبال اليوم</span>
+                        @endif
+                    </div>
+                @endif
+
                 {{-- Name --}}
                 <div class="ep-field">
                     <label for="ep-name">الاسم <small>(اختياري)</small></label>
@@ -117,6 +132,7 @@
                     <x-filament::button wire:click="submit" icon="heroicon-m-check" size="xl" class="ep-submit">
                         {{ $today_entry ? 'تحديث الإدخال' : 'حفظ الإدخال' }}
                     </x-filament::button>
+                    {{ $this->transferAction }}
                     <x-filament::button wire:click="resetForm" color="gray" size="xl">
                         إلغاء
                     </x-filament::button>
@@ -172,7 +188,10 @@
         background: color-mix(in oklab, var(--primary-500) 8%, transparent);
     }
 
-    .ep-actions { display: flex; gap: .75rem; }
+    .ep-referral { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; font-size: .8125rem; color: var(--gray-500); }
+    .ep-referral-icon { width: 1rem; height: 1rem; color: var(--gray-400); }
+
+    .ep-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
     .ep-submit { flex: 1; }
 
     .dark .ep-stats > div { background: var(--gray-900); box-shadow: 0 0 0 1px rgb(255 255 255 / .1); }
