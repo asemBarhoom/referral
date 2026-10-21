@@ -62,7 +62,6 @@ class SystemDataSeeder extends Seeder
     private function seedSettings(): void
     {
         $settings = [
-            ['key' => 'idle_timeout',     'value' => '30',                                           'type' => 'integer'],
             ['key' => 'hint_reception',   'value' => 'أدخل رقم هوية الحالة، ثم اختر المشاريع التي ستتوجه لها الحالة.', 'type' => 'string'],
             ['key' => 'hint_point',       'value' => 'أدخل كل حالة تخدمها، واحدة تلو الأخرى، فور تقديم الخدمة.',         'type' => 'string'],
         ];

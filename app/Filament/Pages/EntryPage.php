@@ -6,7 +6,6 @@ use App\Models\Beneficiary;
 use App\Models\Center;
 use App\Models\ChangeLog;
 use App\Models\Entry;
-use App\Models\EntryProject;
 use App\Models\Project;
 use App\Models\Setting;
 use App\Models\User;
@@ -18,6 +17,8 @@ use Filament\Support\Enums\Size;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
+// Reception: enter the ID, pick projects, save the day's referral.
+// Point: enter the ID, record the service for the user's own project, or transfer to another project.
 class EntryPage extends Page
 {
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-pencil-square';
@@ -28,38 +29,39 @@ class EntryPage extends Page
     public ?string $identity_number = null;
     public ?string $name = null;
     public array $selected_projects = [];
-    public ?int $center_id = null;
 
     public ?Beneficiary $found_beneficiary = null;
     public ?Entry $today_entry = null;
     public bool $searched = false;
 
-    private ?array $userCenters = null;
-
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->role, [User::ROLE_RECEPTION, User::ROLE_POINT, User::ROLE_ADMIN], true);
+        return in_array(auth()->user()?->role, [User::ROLE_RECEPTION, User::ROLE_POINT], true);
     }
 
     public function mount(): void
     {
         $this->reset();
-        $this->center_id = $this->userCenterId();
     }
 
     public function getSubheading(): ?string
     {
-        return Setting::get($this->entryType() === Entry::TYPE_RECEPTION ? 'hint_reception' : 'hint_point');
+        return Setting::get($this->isPoint() ? 'hint_point' : 'hint_reception');
     }
 
-    public function updatedCenterId(): void
+    public function isPoint(): bool
     {
-        if ($this->center_id && array_key_exists($this->center_id, $this->getUserCenters())) {
-            session(['entry_center_id' => $this->center_id]);
-        }
+        return auth()->user()->isPoint();
+    }
 
-        $this->center_id = $this->userCenterId();
-        $this->resetForm();
+    public function center(): ?Center
+    {
+        return auth()->user()->center;
+    }
+
+    public function project(): ?Project
+    {
+        return $this->isPoint() ? auth()->user()->project : null;
     }
 
     public function resetForm(): void
@@ -85,22 +87,22 @@ class EntryPage extends Page
         $this->name              = $this->found_beneficiary?->name;
         $this->searched          = true;
 
-        if (! $this->found_beneficiary) {
+        if (! $this->found_beneficiary || ! $this->center()) {
             return;
         }
 
-        $this->today_entry = $this->ownEntryTodayQuery()->first();
+        if ($this->isPoint()) {
+            $this->today_entry = $this->project() ? $this->servedTodayQuery()->first() : null;
+            return;
+        }
 
-        // Pre-select from: own entry today, else today's referral (for point staff), else the last entry of the same type.
-        $source = $this->today_entry
-            ?? ($this->entryType() === Entry::TYPE_POINT && $this->userCenterId()
-                ? $this->todayReferralQuery($this->found_beneficiary->id, $this->userCenterId())->first()
-                : null)
-            ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
-                ->where('center_id', $this->userCenterId())
-                ->where('type', $this->entryType())
-                ->latest('entry_time')
-                ->first();
+        $this->today_entry = $this->todayReferralQuery($this->found_beneficiary->id)->first();
+
+        $source = $this->today_entry ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
+            ->where('center_id', $this->center()->id)
+            ->where('type', Entry::TYPE_RECEPTION)
+            ->latest('entry_time')
+            ->first();
 
         $this->selected_projects = $source?->projects->pluck('id')->map(fn ($id) => (string) $id)->all() ?? [];
     }
@@ -111,15 +113,19 @@ class EntryPage extends Page
             return;
         }
 
-        $centerId = $this->userCenterId();
-        if (! $centerId) {
+        if (! $this->center()) {
             Notification::make()->title('لا يوجد مركز مرتبط بحسابك')->danger()->send();
             return;
         }
 
+        $this->isPoint() ? $this->recordService() : $this->saveReferral();
+    }
+
+    private function saveReferral(): void
+    {
         $projectIds = array_values(array_intersect(
             $this->selected_projects,
-            array_map('strval', array_keys($this->getAvailableProjects())),
+            array_map('strval', array_keys($this->getCenterProjects())),
         ));
 
         if (empty($projectIds)) {
@@ -127,88 +133,50 @@ class EntryPage extends Page
             return;
         }
 
-        // A point service is recorded once per project per day, whoever served it.
-        $skipped = [];
-        if (! $this->today_entry && $this->found_beneficiary && $this->entryType() === Entry::TYPE_POINT) {
-            $servedEntryIds = Entry::where('beneficiary_id', $this->found_beneficiary->id)
-                ->where('entry_date', $this->today())
-                ->where('type', Entry::TYPE_POINT)
-                ->pluck('id');
+        $isUpdate = (bool) $this->today_entry;
 
-            $skipped = EntryProject::whereIn('entry_id', $servedEntryIds)
-                ->whereIn('project_id', $projectIds)
-                ->pluck('project_id')
-                ->map(fn ($id) => (string) $id)
-                ->all();
+        DB::transaction(function () use ($projectIds) {
+            $beneficiary = $this->resolveBeneficiary();
 
-            $projectIds = array_values(array_diff($projectIds, $skipped));
+            if ($this->today_entry) {
+                $old = $this->projectIdsOf($this->today_entry);
+                $new = collect($projectIds)->sort()->values()->all();
+                $this->today_entry->projects()->sync($new);
 
-            if (empty($projectIds)) {
-                Notification::make()->title('هذه الحالة خُدمت اليوم في جميع المشاريع المختارة')->warning()->send();
+                if ($old !== $new) {
+                    $this->log('updated_entry_projects', $this->today_entry, ['project_ids' => $old], ['project_ids' => $new]);
+                }
+
                 return;
             }
-        }
 
-        $title = match (true) {
-            $this->isReferralEdit() => 'تم تحديث التحويل',
-            (bool) $this->today_entry => 'تم تحديث الإدخال',
-            default => 'تم الإدخال بنجاح',
-        };
+            $this->createEntry($beneficiary, Entry::TYPE_RECEPTION)->projects()->sync($projectIds);
+        });
 
-        DB::transaction(fn () => $this->persist($centerId, $projectIds));
-
-        $notification = Notification::make()->title($title)->success();
-
-        if ($skipped) {
-            $names = array_intersect_key($this->getAvailableProjects(), array_flip($skipped));
-            $notification->body('تم تخطي مشاريع مسجلة اليوم: ' . implode('، ', $names));
-        }
-
-        $notification->send();
+        Notification::make()->title($isUpdate ? 'تم تحديث التحويل' : 'تم حفظ التحويل')->success()->send();
         $this->resetForm();
     }
 
-    private function persist(int $centerId, array $projectIds): void
+    private function recordService(): void
     {
-        $user = auth()->user();
-        $now  = Carbon::now('Asia/Gaza');
+        $project = $this->project();
 
-        $beneficiary = $this->found_beneficiary ?? Beneficiary::firstOrCreate(
-            ['identity_number' => $this->identity_number],
-            ['name' => filled($this->name) ? $this->name : null, 'first_entry_date' => $now->toDateString()],
-        );
-        $isNew = $beneficiary->wasRecentlyCreated;
-
-        if (! $isNew && filled($this->name) && $this->name !== $beneficiary->name) {
-            $this->log('updated_name', $beneficiary, ['name' => $beneficiary->name], ['name' => $this->name]);
-            $beneficiary->update(['name' => $this->name]);
-        }
-
-        if ($this->today_entry) {
-            $old = $this->today_entry->projects()->pluck('projects.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
-
-            // Keep projects on the entry that this user cannot see (e.g. added by a point transfer).
-            $hidden = array_diff($old, array_map('strval', array_keys($this->getAvailableProjects())));
-            $new = collect($projectIds)->merge($hidden)->unique()->sort()->values()->all();
-
-            $this->today_entry->projects()->sync($new);
-
-            if ($old !== $new) {
-                $this->log('updated_entry_projects', $this->today_entry, ['project_ids' => $old], ['project_ids' => $new]);
-            }
-
+        if (! $project) {
+            Notification::make()->title('لا يوجد مشروع مرتبط بحسابك')->danger()->send();
             return;
         }
 
-        Entry::create([
-            'beneficiary_id' => $beneficiary->id,
-            'center_id'      => $centerId,
-            'staff_id'       => $user->id,
-            'type'           => $this->entryType(),
-            'is_new'         => $isNew,
-            'entry_time'     => $now,
-            'entry_date'     => $now->toDateString(),
-        ])->projects()->sync($projectIds);
+        if ($this->found_beneficiary && $this->servedTodayQuery()->exists()) {
+            Notification::make()->title('هذه الحالة خُدمت اليوم في ' . $project->name)->warning()->send();
+            return;
+        }
+
+        DB::transaction(function () use ($project) {
+            $this->createEntry($this->resolveBeneficiary(), Entry::TYPE_POINT)->projects()->sync([$project->id]);
+        });
+
+        Notification::make()->title('تم تسجيل الخدمة')->success()->send();
+        $this->resetForm();
     }
 
     public function transferAction(): Action
@@ -218,7 +186,7 @@ class EntryPage extends Page
             ->icon('heroicon-m-arrows-right-left')
             ->color('gray')
             ->size(Size::ExtraLarge)
-            ->visible(fn () => $this->searched && $this->entryType() === Entry::TYPE_POINT)
+            ->visible(fn () => $this->searched && $this->isPoint())
             ->modalHeading('تحويل الحالة لمشروع آخر')
             ->modalDescription(fn () => 'رقم الهوية ' . $this->identity_number . ' — يُستبدل مشروعك في تحويل اليوم بالمشروع المختار.')
             ->modalSubmitActionLabel('تحويل')
@@ -234,41 +202,26 @@ class EntryPage extends Page
 
     private function transfer(int $targetId): void
     {
-        $targets  = $this->getTransferTargets();
-        $centerId = $this->userCenterId();
+        $targets = $this->getTransferTargets();
 
-        if (! $centerId || ! array_key_exists($targetId, $targets) || strlen((string) $this->identity_number) !== 9) {
+        if (! $this->center() || ! array_key_exists($targetId, $targets) || strlen((string) $this->identity_number) !== 9) {
             Notification::make()->title('تعذّر التحويل')->danger()->send();
             return;
         }
 
-        DB::transaction(function () use ($targetId, $centerId) {
-            $now = Carbon::now('Asia/Gaza');
+        DB::transaction(function () use ($targetId) {
+            $beneficiary = $this->resolveBeneficiary();
+            $referral = $this->todayReferralQuery($beneficiary->id)->first();
+            $old = $referral ? $this->projectIdsOf($referral) : [];
 
-            $beneficiary = $this->found_beneficiary ?? Beneficiary::firstOrCreate(
-                ['identity_number' => $this->identity_number],
-                ['name' => filled($this->name) ? $this->name : null, 'first_entry_date' => $now->toDateString()],
-            );
+            $new = collect($old)
+                ->reject(fn ($id) => $id === (string) $this->project()?->id)
+                ->push((string) $targetId)
+                ->unique()->sort()->values()->all();
 
-            $referral = $this->todayReferralQuery($beneficiary->id, $centerId)->first();
-            $old = $referral
-                ? $referral->projects()->pluck('projects.id')->map(fn ($id) => (string) $id)->sort()->values()->all()
-                : [];
-
-            $myProjectIds = auth()->user()->projects()->pluck('projects.id')->map(fn ($id) => (string) $id);
-            $new = collect($old)->diff($myProjectIds)->push((string) $targetId)->unique()->sort()->values()->all();
-
-            $referral ??= Entry::create([
-                'beneficiary_id' => $beneficiary->id,
-                'center_id'      => $centerId,
-                'staff_id'       => auth()->id(),
-                'type'           => Entry::TYPE_RECEPTION,
-                'is_new'         => $beneficiary->wasRecentlyCreated,
-                'entry_time'     => $now,
-                'entry_date'     => $now->toDateString(),
-            ]);
-
+            $referral ??= $this->createEntry($beneficiary, Entry::TYPE_RECEPTION);
             $referral->projects()->sync($new);
+
             $this->log('transferred_case', $referral, ['project_ids' => $old], ['project_ids' => $new, 'to_project_id' => $targetId]);
         });
 
@@ -276,30 +229,35 @@ class EntryPage extends Page
         $this->resetForm();
     }
 
+    /** Active projects of the user's center, in display order. */
+    public function getCenterProjects(): array
+    {
+        return $this->center()?->projects()
+            ->where('projects.is_active', true)
+            ->wherePivot('is_active', true)
+            ->orderBy('projects.display_order')
+            ->pluck('projects.name', 'projects.id')
+            ->toArray() ?? [];
+    }
+
     public function getTransferTargets(): array
     {
-        $center = Center::find($this->userCenterId());
-        if (! $center) {
+        return array_diff_key($this->getCenterProjects(), array_flip(array_filter([$this->project()?->id])));
+    }
+
+    public function getTodayReferralProjects(): array
+    {
+        if (! $this->found_beneficiary || ! $this->center()) {
             return [];
         }
 
-        return $center->projects()
-            ->where('projects.is_active', true)
-            ->wherePivot('is_active', true)
-            ->whereNotIn('projects.id', auth()->user()->projects()->pluck('projects.id'))
-            ->orderBy('projects.display_order')
-            ->pluck('projects.name', 'projects.id')
-            ->toArray();
-    }
-
-    public function isReferralEdit(): bool
-    {
-        return $this->today_entry && $this->entryType() === Entry::TYPE_RECEPTION;
+        return $this->todayReferralQuery($this->found_beneficiary->id)
+            ->first()?->projects()->orderBy('display_order')->pluck('name')->all() ?? [];
     }
 
     public function getLastTransfer(): ?array
     {
-        if (! $this->isReferralEdit()) {
+        if ($this->isPoint() || ! $this->today_entry) {
             return null;
         }
 
@@ -325,66 +283,11 @@ class EntryPage extends Page
         ];
     }
 
-    public function getTodayReferralProjects(): array
-    {
-        if (! $this->found_beneficiary || ! $this->userCenterId()) {
-            return [];
-        }
-
-        return $this->todayReferralQuery($this->found_beneficiary->id, $this->userCenterId())
-            ->first()?->projects()->orderBy('display_order')->pluck('name')->all() ?? [];
-    }
-
-    private function todayReferralQuery(int $beneficiaryId, int $centerId)
-    {
-        return Entry::where('beneficiary_id', $beneficiaryId)
-            ->where('center_id', $centerId)
-            ->where('entry_date', $this->today())
-            ->where('type', Entry::TYPE_RECEPTION)
-            ->latest('entry_time');
-    }
-
-    public function getAvailableProjects(): array
-    {
-        $center = Center::find($this->userCenterId());
-        if (! $center) {
-            return [];
-        }
-
-        $userProjectIds = auth()->user()->projects()->pluck('projects.id');
-
-        return $center->projects()
-            ->where('projects.is_active', true)
-            ->wherePivot('is_active', true)
-            ->when($userProjectIds->isNotEmpty(), fn ($q) => $q->whereIn('projects.id', $userProjectIds))
-            ->orderBy('projects.display_order')
-            ->pluck('projects.name', 'projects.id')
-            ->toArray();
-    }
-
-    public function getUserCenters(): array
-    {
-        return $this->userCenters ??= auth()->user()->centers()
-            ->where('centers.is_active', true)
-            ->orderBy('centers.id')
-            ->pluck('centers.name', 'centers.id')
-            ->toArray();
-    }
-
-    public function userCenterId(): ?int
-    {
-        $centers = $this->getUserCenters();
-        $chosen  = session('entry_center_id');
-
-        return $chosen && array_key_exists($chosen, $centers) ? $chosen : array_key_first($centers);
-    }
-
     public function getTodayStats(): array
     {
         $query = Entry::where('staff_id', auth()->id())
-            ->where('type', $this->entryType())
-            ->where('entry_date', $this->today())
-            ->when($this->userCenterId(), fn ($q, $centerId) => $q->where('center_id', $centerId));
+            ->where('type', $this->isPoint() ? Entry::TYPE_POINT : Entry::TYPE_RECEPTION)
+            ->where('entry_date', $this->today());
 
         $total    = (clone $query)->count();
         $newCount = (clone $query)->where('is_new', true)->count();
@@ -392,20 +295,60 @@ class EntryPage extends Page
         return compact('total', 'newCount');
     }
 
-    private function entryType(): string
+    private function resolveBeneficiary(): Beneficiary
     {
-        return auth()->user()?->role === User::ROLE_RECEPTION ? Entry::TYPE_RECEPTION : Entry::TYPE_POINT;
+        $beneficiary = $this->found_beneficiary ?? Beneficiary::firstOrCreate(
+            ['identity_number' => $this->identity_number],
+            ['name' => filled($this->name) ? $this->name : null, 'first_entry_date' => $this->today()],
+        );
+
+        if (! $beneficiary->wasRecentlyCreated && filled($this->name) && $this->name !== $beneficiary->name) {
+            $this->log('updated_name', $beneficiary, ['name' => $beneficiary->name], ['name' => $this->name]);
+            $beneficiary->update(['name' => $this->name]);
+        }
+
+        return $beneficiary;
     }
 
-    // Reception shares one arrival entry per center per day; point staff only touch their own.
-    private function ownEntryTodayQuery()
+    private function createEntry(Beneficiary $beneficiary, string $type): Entry
     {
-        return Entry::where('beneficiary_id', $this->found_beneficiary->id)
+        $now = Carbon::now('Asia/Gaza');
+
+        return Entry::create([
+            'beneficiary_id' => $beneficiary->id,
+            'center_id'      => $this->center()->id,
+            'staff_id'       => auth()->id(),
+            'type'           => $type,
+            'is_new'         => $beneficiary->wasRecentlyCreated,
+            'entry_time'     => $now,
+            'entry_date'     => $now->toDateString(),
+        ]);
+    }
+
+    // The center's referral for this case today (one per center per day).
+    private function todayReferralQuery(int $beneficiaryId)
+    {
+        return Entry::where('beneficiary_id', $beneficiaryId)
+            ->where('center_id', $this->center()->id)
             ->where('entry_date', $this->today())
-            ->where('center_id', $this->userCenterId())
-            ->where('type', $this->entryType())
-            ->when($this->entryType() === Entry::TYPE_POINT, fn ($q) => $q->where('staff_id', auth()->id()))
+            ->where('type', Entry::TYPE_RECEPTION)
             ->latest('entry_time');
+    }
+
+    // A service in the user's project for this case today, by any point staff.
+    private function servedTodayQuery()
+    {
+        return Entry::with('staff:id,name')
+            ->where('beneficiary_id', $this->found_beneficiary->id)
+            ->where('entry_date', $this->today())
+            ->where('type', Entry::TYPE_POINT)
+            ->whereHas('projects', fn ($q) => $q->where('projects.id', $this->project()->id))
+            ->latest('entry_time');
+    }
+
+    private function projectIdsOf(Entry $entry): array
+    {
+        return $entry->projects()->pluck('projects.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
     }
 
     private function today(): string

@@ -19,9 +19,9 @@ class Center extends Model
             ->withTimestamps();
     }
 
-    public function users(): BelongsToMany
+    public function users(): HasMany
     {
-        return $this->belongsToMany(User::class, 'user_centers')->withTimestamps();
+        return $this->hasMany(User::class);
     }
 
     public function entries(): HasMany

@@ -1,28 +1,28 @@
 <x-filament-panels::page>
 @php
-    $center      = \App\Models\Center::find($this->userCenterId());
-    $centerName  = $center?->name;
-    $centerColor = $center?->color ?? 'gray';
-    $projects   = $this->getAvailableProjects();
-    $stats      = $this->getTodayStats();
+    $isPoint  = $this->isPoint();
+    $center   = $this->center();
+    $project  = $this->project();
+    $stats    = $this->getTodayStats();
+    $projects = $isPoint ? [] : $this->getCenterProjects();
 @endphp
 
 <div class="ep" x-data x-on:keydown.escape.window="$wire.resetForm()">
-    {{-- Center + today stats --}}
+    {{-- Who and where, plus today's numbers --}}
     <div class="ep-bar">
-        <div class="ep-center">
-            @if (count($userCenters = $this->getUserCenters()) > 1)
-                <x-filament::input.wrapper prefix-icon="heroicon-m-building-office-2">
-                    <x-filament::input.select wire:model.live="center_id">
-                        @foreach ($userCenters as $id => $name)
-                            <option value="{{ $id }}">{{ $name }}</option>
-                        @endforeach
-                    </x-filament::input.select>
-                </x-filament::input.wrapper>
-            @elseif ($centerName)
-                <x-filament::badge :color="$centerColor" icon="heroicon-m-building-office-2" size="lg">{{ $centerName }}</x-filament::badge>
+        <div class="ep-badges">
+            @if ($center)
+                <x-filament::badge :color="$center->color ?? 'gray'" icon="heroicon-m-building-office-2" size="lg">{{ $center->name }}</x-filament::badge>
             @else
                 <x-filament::badge color="danger" icon="heroicon-m-exclamation-triangle">لا يوجد مركز مرتبط بحسابك</x-filament::badge>
+            @endif
+
+            @if ($isPoint)
+                @if ($project)
+                    <x-filament::badge color="primary" icon="heroicon-m-hand-raised" size="lg">{{ $project->name }}</x-filament::badge>
+                @else
+                    <x-filament::badge color="danger" icon="heroicon-m-exclamation-triangle">لا يوجد مشروع مرتبط بحسابك</x-filament::badge>
+                @endif
             @endif
         </div>
 
@@ -63,16 +63,16 @@
                 <div class="ep-status">
                     @if (! $found_beneficiary)
                         <x-filament::badge color="info" icon="heroicon-m-sparkles">حالة جديدة — أول مرة</x-filament::badge>
-                    @elseif ($this->isReferralEdit())
+                    @elseif ($today_entry && $isPoint)
+                        <x-filament::badge color="warning" icon="heroicon-m-check-circle">
+                            خُدمت اليوم {{ $today_entry->entry_time?->format('H:i') }}
+                        </x-filament::badge>
+                        <span class="ep-meta">سجّلها {{ $today_entry->staff?->name }}</span>
+                    @elseif ($today_entry)
                         <x-filament::badge color="warning" icon="heroicon-m-arrows-right-left">
                             محوّلة اليوم {{ $today_entry->entry_time?->format('H:i') }}
                         </x-filament::badge>
                         <span class="ep-meta">عدّل المشاريع ثم اضغط تحديث التحويل</span>
-                    @elseif ($today_entry)
-                        <x-filament::badge color="warning" icon="heroicon-m-clock">
-                            أُدخلت اليوم {{ $today_entry->entry_time?->format('H:i') }}
-                        </x-filament::badge>
-                        <span class="ep-meta">سيتم تحديث المشاريع على نفس الإدخال</span>
                     @else
                         @php
                             $last = $found_beneficiary->entries()->with('center')->latest('entry_time')->first();
@@ -86,9 +86,10 @@
                     @endif
                 </div>
 
+                {{-- Reception: who transferred today's referral --}}
                 @if ($lastTransfer = $this->getLastTransfer())
-                    <div class="ep-referral">
-                        <x-filament::icon icon="heroicon-m-information-circle" class="ep-referral-icon" />
+                    <div class="ep-note">
+                        <x-filament::icon icon="heroicon-m-information-circle" class="ep-note-icon" />
                         <span>
                             حوّلها {{ $lastTransfer['by'] }}
                             @if ($lastTransfer['from']) من {{ $lastTransfer['from'] }} @endif
@@ -97,10 +98,11 @@
                     </div>
                 @endif
 
-                @if ($found_beneficiary && $this->transferAction->isVisible())
+                {{-- Point: where reception sent the case today --}}
+                @if ($isPoint && $found_beneficiary)
                     @php $referredTo = $this->getTodayReferralProjects(); @endphp
-                    <div class="ep-referral">
-                        <x-filament::icon icon="heroicon-m-arrow-turn-down-left" class="ep-referral-icon" />
+                    <div class="ep-note">
+                        <x-filament::icon icon="heroicon-m-arrow-turn-down-left" class="ep-note-icon" />
                         @if ($referredTo)
                             <span>محوّلة اليوم إلى:</span>
                             @foreach ($referredTo as $pname)
@@ -126,30 +128,38 @@
                     </x-filament::input.wrapper>
                 </div>
 
-                {{-- Projects --}}
-                <div class="ep-field">
-                    <label>المشاريع</label>
-                    @if (count($projects))
-                        <div class="ep-projects">
-                            @foreach ($projects as $id => $pname)
-                                <label class="ep-project" wire:key="project-{{ $id }}">
-                                    <x-filament::input.checkbox value="{{ $id }}" wire:model="selected_projects" />
-                                    <span>{{ $pname }}</span>
-                                </label>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="ep-meta">لا توجد مشاريع مفعّلة لهذا المركز.</p>
-                    @endif
-                </div>
+                {{-- Reception: projects --}}
+                @unless ($isPoint)
+                    <div class="ep-field">
+                        <label>المشاريع</label>
+                        @if (count($projects))
+                            <div class="ep-projects">
+                                @foreach ($projects as $id => $pname)
+                                    <label class="ep-project" wire:key="project-{{ $id }}">
+                                        <x-filament::input.checkbox value="{{ $id }}" wire:model="selected_projects" />
+                                        <span>{{ $pname }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        @else
+                            <p class="ep-meta">لا توجد مشاريع مفعّلة لهذا المركز.</p>
+                        @endif
+                    </div>
+                @endunless
 
                 {{-- Actions --}}
                 <div class="ep-actions">
-                    <x-filament::button wire:click="submit" icon="heroicon-m-check" size="xl" class="ep-submit">
-                        {{ $this->isReferralEdit() ? 'تحديث التحويل' : ($today_entry ? 'تحديث الإدخال' : 'حفظ الإدخال') }}
-                    </x-filament::button>
-                    @if ($this->transferAction->isVisible())
+                    @if ($isPoint)
+                        @unless ($today_entry)
+                            <x-filament::button wire:click="submit" icon="heroicon-m-check" size="xl" class="ep-submit">
+                                تم تقديم الخدمة
+                            </x-filament::button>
+                        @endunless
                         {{ $this->transferAction }}
+                    @else
+                        <x-filament::button wire:click="submit" icon="heroicon-m-check" size="xl" class="ep-submit">
+                            {{ $today_entry ? 'تحديث التحويل' : 'حفظ التحويل' }}
+                        </x-filament::button>
                     @endif
                     <x-filament::button wire:click="resetForm" color="gray" size="xl">
                         إلغاء
@@ -165,7 +175,7 @@
     .ep { max-width: 44rem; margin-inline: auto; display: flex; flex-direction: column; gap: 1rem; }
 
     .ep-bar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
-    .ep-center { min-width: 13rem; }
+    .ep-badges { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
     .ep-stats { display: flex; gap: .5rem; }
     .ep-stats > div {
         display: flex; align-items: baseline; gap: .375rem;
@@ -188,6 +198,8 @@
         padding-top: 1.25rem; border-top: 1px solid var(--gray-100);
     }
     .ep-meta { font-size: .8125rem; color: var(--gray-500); }
+    .ep-note { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; font-size: .8125rem; color: var(--gray-500); }
+    .ep-note-icon { width: 1rem; height: 1rem; color: var(--gray-400); }
 
     .ep-field { display: flex; flex-direction: column; gap: .5rem; }
     .ep-field > label { font-size: .875rem; font-weight: 500; color: var(--gray-950); }
@@ -205,9 +217,6 @@
         border-color: var(--primary-500); color: var(--gray-950); font-weight: 500;
         background: color-mix(in oklab, var(--primary-500) 8%, transparent);
     }
-
-    .ep-referral { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; font-size: .8125rem; color: var(--gray-500); }
-    .ep-referral-icon { width: 1rem; height: 1rem; color: var(--gray-400); }
 
     .ep-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
     .ep-submit { flex: 1; }

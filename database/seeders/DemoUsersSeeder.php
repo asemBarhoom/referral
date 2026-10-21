@@ -12,19 +12,13 @@ class DemoUsersSeeder extends Seeder
 {
     public function run(): void
     {
-        $centers = Center::where('is_active', true)->orderBy('id')->get();
+        $this->demoUser('superadmin', 'السوبر أدمن', User::ROLE_ADMIN)->assignRole('super_admin');
 
-        $admin = $this->demoUser('superadmin', 'السوبر أدمن', User::ROLE_ADMIN);
-        $admin->assignRole('super_admin');
-        $admin->centers()->sync($centers->pluck('id'));
-
-        foreach ($centers as $index => $center) {
+        foreach (Center::where('is_active', true)->orderBy('id')->get() as $index => $center) {
             $short  = Str::after($center->name, 'مركز ');
             $suffix = Str::lower($center->code);
 
-            $reception = $this->demoUser("reception.$suffix", "استقبال $short", User::ROLE_RECEPTION);
-            $reception->centers()->sync([$center->id]);
-            $reception->projects()->sync([]);
+            $this->demoUser("reception.$suffix", "استقبال $short", User::ROLE_RECEPTION, $center->id);
 
             $projects = $center->projects()
                 ->where('projects.is_active', true)
@@ -41,18 +35,24 @@ class DemoUsersSeeder extends Seeder
                         ->update(['email' => "point.$code.$suffix@" . User::DEMO_DOMAIN]);
                 }
 
-                $user = $this->demoUser("point.$code.$suffix", "نقطة {$project->name} $short", User::ROLE_POINT);
-                $user->centers()->sync([$center->id]);
-                $user->projects()->sync([$project->id]);
+                $this->demoUser("point.$code.$suffix", "نقطة {$project->name} $short", User::ROLE_POINT, $center->id, $project->id);
             }
         }
     }
 
-    private function demoUser(string $username, string $name, string $role): User
+    private function demoUser(string $username, string $name, string $role, ?int $centerId = null, ?int $projectId = null): User
     {
         return User::updateOrCreate(
             ['email' => $username . '@' . User::DEMO_DOMAIN],
-            ['name' => $name, 'username' => $username, 'password' => 'password', 'role' => $role, 'is_active' => true],
+            [
+                'name'       => $name,
+                'username'   => $username,
+                'password'   => 'password',
+                'role'       => $role,
+                'is_active'  => true,
+                'center_id'  => $centerId,
+                'project_id' => $projectId,
+            ],
         );
     }
 }

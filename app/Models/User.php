@@ -6,7 +6,7 @@ use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -17,7 +17,7 @@ class User extends Authenticatable implements FilamentUser
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, HasRoles;
 
-    protected $fillable = ['name', 'username', 'email', 'password', 'role', 'is_active'];
+    protected $fillable = ['name', 'username', 'email', 'password', 'role', 'is_active', 'center_id', 'project_id'];
 
     protected $hidden = ['password', 'remember_token'];
 
@@ -44,14 +44,19 @@ class User extends Authenticatable implements FilamentUser
         return $this->role === self::ROLE_ADMIN;
     }
 
-    public function centers(): BelongsToMany
+    public function isPoint(): bool
     {
-        return $this->belongsToMany(Center::class, 'user_centers')->withTimestamps();
+        return $this->role === self::ROLE_POINT;
     }
 
-    public function projects(): BelongsToMany
+    public function center(): BelongsTo
     {
-        return $this->belongsToMany(Project::class, 'user_projects')->withTimestamps();
+        return $this->belongsTo(Center::class);
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
     }
 
     public function entries(): HasMany

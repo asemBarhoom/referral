@@ -4,16 +4,17 @@ namespace App\Filament\Resources;
 
 use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\UserResource\Pages;
-use App\Models\Project;
+use App\Models\Center;
 use App\Models\User;
 use Filament\Forms;
 use Filament\Actions;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
 
 class UserResource extends Resource
 {
@@ -53,7 +54,7 @@ class UserResource extends Resource
                     ->dehydrated(fn($state) => filled($state))
                     ->required(fn(string $operation): bool => $operation === 'create'),
             ])->columns(2),
-            Section::make('الدور')->schema([
+            Section::make('العمل')->schema([
                 Forms\Components\Select::make('role')
                     ->label('النوع')
                     ->options([
@@ -61,28 +62,40 @@ class UserResource extends Resource
                         User::ROLE_POINT     => 'موظف نقطة',
                         User::ROLE_ADMIN     => 'مدير النظام',
                     ])
-                    ->required(),
+                    ->required()
+                    ->live()
+                    ->afterStateUpdated(function (Set $set, ?string $state) {
+                        if ($state === User::ROLE_ADMIN) {
+                            $set('center_id', null);
+                        }
+                        if ($state !== User::ROLE_POINT) {
+                            $set('project_id', null);
+                        }
+                    }),
                 Forms\Components\Toggle::make('is_active')
                     ->label('نشط')
                     ->default(true)
                     ->inline(false),
+                Forms\Components\Select::make('center_id')
+                    ->label('المركز')
+                    ->options(fn () => Center::where('is_active', true)->orderBy('id')->pluck('name', 'id'))
+                    ->visible(fn (Get $get) => in_array($get('role'), [User::ROLE_RECEPTION, User::ROLE_POINT], true))
+                    ->required(fn (Get $get) => in_array($get('role'), [User::ROLE_RECEPTION, User::ROLE_POINT], true))
+                    ->dehydratedWhenHidden()
+                    ->live()
+                    ->afterStateUpdated(fn (Set $set) => $set('project_id', null)),
+                Forms\Components\Select::make('project_id')
+                    ->label('المشروع')
+                    ->helperText('النقاط الموجودة في المركز المختار.')
+                    ->options(fn (Get $get) => Center::find($get('center_id'))?->projects()
+                        ->where('projects.is_active', true)
+                        ->wherePivot('is_active', true)
+                        ->orderBy('projects.display_order')
+                        ->pluck('projects.name', 'projects.id') ?? [])
+                    ->visible(fn (Get $get) => $get('role') === User::ROLE_POINT)
+                    ->required(fn (Get $get) => $get('role') === User::ROLE_POINT)
+                    ->dehydratedWhenHidden(),
             ])->columns(2),
-            Section::make('المراكز والمشاريع')->schema([
-                Forms\Components\CheckboxList::make('centers')
-                    ->label('المراكز')
-                    ->helperText('إذا ارتبط بأكثر من مركز، يختار مركزه مرة واحدة عند بداية العمل.')
-                    ->relationship('centers', 'name', fn (Builder $query) => $query->where('is_active', true)->orderBy('id'))
-                    ->columns(2)
-                    ->gridDirection('row')
-                    ->required(),
-                Forms\Components\CheckboxList::make('projects')
-                    ->label('المشاريع')
-                    ->helperText('اتركها فارغة ليظهر له كل مشاريع المركز.')
-                    ->relationship('projects', 'name', fn (Builder $query) => $query->where('is_active', true)->orderBy('display_order'))
-                    ->columns(['default' => 2, 'lg' => 4])
-                    ->gridDirection('row')
-                    ->bulkToggleable(),
-            ]),
         ]);
     }
 
@@ -108,16 +121,13 @@ class UserResource extends Resource
                         default => $state,
                     }),
                 Tables\Columns\IconColumn::make('is_active')->label('نشط')->boolean(),
-                Tables\Columns\TextColumn::make('centers.name')
-                    ->label('المراكز')
-                    ->badge()
+                Tables\Columns\TextColumn::make('center.name')
+                    ->label('المركز')
+                    ->placeholder('—')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('project.name')
+                    ->label('المشروع')
                     ->placeholder('—'),
-                Tables\Columns\TextColumn::make('projects.name')
-                    ->label('المشاريع')
-                    ->badge()
-                    ->color('gray')
-                    ->limitList(3)
-                    ->placeholder('كل مشاريع المركز'),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('role')
@@ -127,6 +137,9 @@ class UserResource extends Resource
                         User::ROLE_POINT     => 'نقطة',
                         User::ROLE_ADMIN     => 'أدمن',
                     ]),
+                Tables\Filters\SelectFilter::make('center_id')
+                    ->label('المركز')
+                    ->relationship('center', 'name'),
                 Tables\Filters\TernaryFilter::make('is_active')->label('الحالة'),
             ])
             ->actions([Actions\EditAction::make()]);

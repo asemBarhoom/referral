@@ -22,9 +22,9 @@ class Project extends Model
             ->withTimestamps();
     }
 
-    public function users(): BelongsToMany
+    public function users(): HasMany
     {
-        return $this->belongsToMany(User::class, 'user_projects')->withTimestamps();
+        return $this->hasMany(User::class);
     }
 
     public function entryProjects(): HasMany

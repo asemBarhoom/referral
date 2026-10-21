@@ -50,9 +50,8 @@ class Login extends BaseLogin
     {
         $users = User::where('email', 'like', '%@' . User::DEMO_DOMAIN)
             ->where('is_active', true)
-            ->with('centers:id')
             ->orderBy('id')
-            ->get(['id', 'name', 'role']);
+            ->get(['id', 'name', 'role', 'center_id']);
 
         $groups = [];
 
@@ -66,7 +65,7 @@ class Login extends BaseLogin
 
             $members = $users
                 ->where('role', '!=', User::ROLE_ADMIN)
-                ->filter(fn ($u) => $u->centers->contains('id', $center->id))
+                ->where('center_id', $center->id)
                 ->sortBy(fn ($u) => [$u->role === User::ROLE_RECEPTION ? 0 : 1, $u->id])
                 ->map(fn ($u) => [
                     'id'    => $u->id,
