@@ -91,10 +91,16 @@ class EntryPage extends Page
 
         $this->today_entry = $this->ownEntryTodayQuery()->first();
 
-        $source = $this->today_entry ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
-            ->where('center_id', $this->userCenterId())
-            ->latest('entry_time')
-            ->first();
+        // Pre-select from: own entry today, else today's referral (for point staff), else the last entry of the same type.
+        $source = $this->today_entry
+            ?? ($this->entryType() === Entry::TYPE_POINT && $this->userCenterId()
+                ? $this->todayReferralQuery($this->found_beneficiary->id, $this->userCenterId())->first()
+                : null)
+            ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
+                ->where('center_id', $this->userCenterId())
+                ->where('type', $this->entryType())
+                ->latest('entry_time')
+                ->first();
 
         $this->selected_projects = $source?->projects->pluck('id')->map(fn ($id) => (string) $id)->all() ?? [];
     }
