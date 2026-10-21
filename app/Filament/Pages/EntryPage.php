@@ -31,6 +31,7 @@ class EntryPage extends Page
     public ?string $identity_number = null;
     public ?string $name = null;
     public array $selected_projects = [];
+    public ?int $center_id = null;
 
     public ?Beneficiary $found_beneficiary = null;
     public ?Entry $today_entry = null;
@@ -50,6 +51,36 @@ class EntryPage extends Page
     public function mount(): void
     {
         $this->reset();
+        $this->center_id = auth()->user()?->centers()->value('centers.id')
+            ?? ($this->canSwitchCenter() ? Center::where('is_active', true)->value('id') : null);
+    }
+
+    public function getSubheading(): ?string
+    {
+        $key = auth()->user()?->role === User::ROLE_RECEPTION ? 'hint_reception' : 'hint_point';
+
+        return \App\Models\Setting::where('key', $key)->value('value');
+    }
+
+    public function canSwitchCenter(): bool
+    {
+        return in_array(auth()->user()?->role, [User::ROLE_ADMIN, 'super_admin']);
+    }
+
+    public function getCenterOptions(): array
+    {
+        return Center::where('is_active', true)->orderBy('id')->pluck('name', 'id')->toArray();
+    }
+
+    public function updatedCenterId(): void
+    {
+        $this->resetForm();
+    }
+
+    public function resetForm(): void
+    {
+        $this->reset(['identity_number', 'name', 'selected_projects', 'found_beneficiary', 'today_entry', 'searched']);
+        $this->dispatch('entry-saved');
     }
 
     public function searchBeneficiary(): void
@@ -77,15 +108,11 @@ class EntryPage extends Page
                 ->first();
 
             // Pre-select projects from last entry
-            if ($this->today_entry) {
-                $this->selected_projects = $this->today_entry->projects->pluck('id')->toArray();
-            } else {
-                $lastEntry = Entry::where('beneficiary_id', $this->found_beneficiary->id)
-                    ->where('center_id', $this->userCenterId())
-                    ->latest('entry_time')
-                    ->first();
-                $this->selected_projects = $lastEntry?->projects->pluck('id')->toArray() ?? [];
-            }
+            $source = $this->today_entry ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
+                ->where('center_id', $this->userCenterId())
+                ->latest('entry_time')
+                ->first();
+            $this->selected_projects = $source?->projects->pluck('id')->map(fn ($id) => (string) $id)->all() ?? [];
 
             $this->name = $this->found_beneficiary->name;
         } else {
@@ -110,6 +137,10 @@ class EntryPage extends Page
         $user = auth()->user();
         $gazaNow = Carbon::now('Asia/Gaza');
         $centerId = $this->userCenterId();
+        if (!$centerId) {
+            Notification::make()->title('لا يوجد مركز مرتبط بحسابك')->danger()->send();
+            return;
+        }
 
         DB::transaction(function () use ($normalized, $user, $gazaNow, $centerId) {
             $isNew = false;
@@ -191,7 +222,7 @@ class EntryPage extends Page
             ->success()
             ->send();
 
-        $this->reset(['identity_number', 'name', 'selected_projects', 'found_beneficiary', 'today_entry', 'searched']);
+        $this->resetForm();
     }
 
     public function getAvailableProjects(): array
@@ -200,18 +231,27 @@ class EntryPage extends Page
         $centerId = $this->userCenterId();
 
         if ($user->role === User::ROLE_POINT) {
-            return $user->projects()->where('is_active', true)->orderBy('display_order')->pluck('name', 'id')->toArray();
+            return $user->projects()->where('projects.is_active', true)->orderBy('projects.display_order')->pluck('projects.name', 'projects.id')->toArray();
         }
 
         // reception and admin see center projects
         $center = Center::find($centerId);
         if (!$center) return [];
-        return $center->projects()->where('is_active', true)->orderBy('display_order')->pluck('projects.name', 'projects.id')->toArray();
+        return $center->projects()
+            ->where('projects.is_active', true)
+            ->wherePivot('is_active', true)
+            ->orderBy('projects.display_order')
+            ->pluck('projects.name', 'projects.id')
+            ->toArray();
     }
 
-    private function userCenterId(): ?int
+    public function userCenterId(): ?int
     {
-        return auth()->user()?->centers()->first()?->id;
+        if ($this->canSwitchCenter()) {
+            return $this->center_id && array_key_exists($this->center_id, $this->getCenterOptions()) ? $this->center_id : null;
+        }
+
+        return auth()->user()?->centers()->value('centers.id');
     }
 
     public function getTodayStats(): array
