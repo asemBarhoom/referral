@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Center;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Role;
@@ -28,5 +29,6 @@ class AdminUserSeeder extends Seeder
         );
 
         $admin->assignRole('super_admin');
+        $admin->centers()->syncWithoutDetaching(Center::pluck('id'));
     }
 }

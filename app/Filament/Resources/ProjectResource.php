@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Concerns\RestrictsToDashboardAdmin;
+use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\ProjectResource\Pages;
 use App\Models\Project;
 use Filament\Forms;
@@ -14,7 +14,7 @@ use Filament\Tables\Table;
 
 class ProjectResource extends Resource
 {
-    use RestrictsToDashboardAdmin;
+    use RestrictsToAdminRoles;
 
     protected static ?string $model = Project::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-clipboard-document-list';
@@ -58,12 +58,7 @@ class ProjectResource extends Resource
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_active')->label('الحالة'),
             ])
-            ->actions([Actions\EditAction::make()])
-            ->bulkActions([
-                Actions\BulkActionGroup::make([
-                    Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->actions([Actions\EditAction::make()]);
     }
 
     public static function getPages(): array

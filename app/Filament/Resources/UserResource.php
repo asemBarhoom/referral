@@ -129,12 +129,7 @@ class UserResource extends Resource
                     ]),
                 Tables\Filters\TernaryFilter::make('is_active')->label('الحالة'),
             ])
-            ->actions([Actions\EditAction::make()])
-            ->bulkActions([
-                Actions\BulkActionGroup::make([
-                    Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->actions([Actions\EditAction::make()]);
     }
 
     public static function getPages(): array

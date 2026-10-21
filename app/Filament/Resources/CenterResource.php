@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Concerns\RestrictsToDashboardAdmin;
+use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\CenterResource\Pages;
 use App\Models\Center;
 use Filament\Forms;
@@ -14,7 +14,7 @@ use Filament\Tables\Table;
 
 class CenterResource extends Resource
 {
-    use RestrictsToDashboardAdmin;
+    use RestrictsToAdminRoles;
 
     protected static ?string $model = Center::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-building-office';
@@ -22,6 +22,15 @@ class CenterResource extends Resource
     protected static ?string $label = 'مركز';
     protected static ?string $pluralLabel = 'المراكز';
     protected static ?int $navigationSort = 10;
+
+    // Keys must match the colors registered in AdminPanelProvider.
+    public const COLORS = [
+        'blue'   => 'أزرق',
+        'green'  => 'أخضر',
+        'orange' => 'برتقالي',
+        'red'    => 'أحمر',
+        'purple' => 'بنفسجي',
+    ];
 
     public static function form(Schema $schema): Schema
     {
@@ -36,14 +45,8 @@ class CenterResource extends Resource
                 ->required()
                 ->maxLength(100),
             Forms\Components\Select::make('color')
-                ->label('لون الشريط')
-                ->options([
-                    'blue'   => 'أزرق',
-                    'green'  => 'أخضر',
-                    'orange' => 'برتقالي',
-                    'red'    => 'أحمر',
-                    'purple' => 'بنفسجي',
-                ])
+                ->label('اللون')
+                ->options(self::COLORS)
                 ->required(),
             Forms\Components\Toggle::make('is_active')
                 ->label('نشط')
@@ -57,7 +60,11 @@ class CenterResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('code')->label('الرمز')->sortable()->searchable(),
                 Tables\Columns\TextColumn::make('name')->label('الاسم')->searchable(),
-                Tables\Columns\TextColumn::make('color')->label('اللون'),
+                Tables\Columns\TextColumn::make('color')
+                    ->label('اللون')
+                    ->badge()
+                    ->color(fn ($state) => $state)
+                    ->formatStateUsing(fn ($state) => self::COLORS[$state] ?? $state),
                 Tables\Columns\IconColumn::make('is_active')->label('نشط')->boolean(),
                 Tables\Columns\TextColumn::make('projects_count')
                     ->label('المشاريع')
@@ -68,11 +75,6 @@ class CenterResource extends Resource
             ])
             ->actions([
                 Actions\EditAction::make(),
-            ])
-            ->bulkActions([
-                Actions\BulkActionGroup::make([
-                    Actions\DeleteBulkAction::make(),
-                ]),
             ]);
     }
 

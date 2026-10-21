@@ -12,6 +12,8 @@ class EditCenter extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [Actions\DeleteAction::make()];
+        return [
+            Actions\DeleteAction::make()->hidden(fn ($record) => $record->entries()->exists()),
+        ];
     }
 }

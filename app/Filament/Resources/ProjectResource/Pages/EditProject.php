@@ -12,6 +12,8 @@ class EditProject extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [Actions\DeleteAction::make()];
+        return [
+            Actions\DeleteAction::make()->hidden(fn ($record) => \App\Models\EntryProject::where('project_id', $record->id)->exists()),
+        ];
     }
 }

@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Concerns\RestrictsToDashboardAdmin;
+use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\SettingResource\Pages;
 use App\Models\Setting;
 use Filament\Actions;
@@ -14,7 +14,7 @@ use Filament\Tables\Table;
 
 class SettingResource extends Resource
 {
-    use RestrictsToDashboardAdmin;
+    use RestrictsToAdminRoles;
 
     protected static ?string $model = Setting::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-cog-6-tooth';

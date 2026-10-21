@@ -3,7 +3,6 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Entry;
-use App\Models\Project;
 use App\Models\User;
 use Carbon\Carbon;
 use Filament\Widgets\StatsOverviewWidget;
@@ -20,31 +19,24 @@ class DailyStatsWidget extends StatsOverviewWidget
 
     protected function getStats(): array
     {
-        $user   = auth()->user();
-        $today  = Carbon::now('Asia/Gaza')->toDateString();
-        $center = $user->centers()->first();
+        $user  = auth()->user();
+        $today = Carbon::now('Asia/Gaza')->toDateString();
 
-        $role = $user->role;
-
-        if ($role === User::ROLE_ADMIN || $role === 'super_admin') {
-            return $this->adminStats($today, $center);
-        }
-
-        if ($role === User::ROLE_POINT) {
-            return $this->pointStats($today, $user);
-        }
-
-        return $this->receptionStats($today, $center, $user);
+        return match ($user->role) {
+            User::ROLE_ADMIN => $this->adminStats($today),
+            User::ROLE_POINT => $this->pointStats($today, $user),
+            default          => $this->receptionStats($today, $user),
+        };
     }
 
-    private function receptionStats(string $today, $center, $user): array
+    private function receptionStats(string $today, $user): array
     {
         $query = Entry::where('staff_id', $user->id)
             ->where('entry_date', $today)
             ->where('type', Entry::TYPE_RECEPTION);
 
-        $total    = $query->count();
-        $newCount = $query->where('is_new', true)->count();
+        $total    = (clone $query)->count();
+        $newCount = (clone $query)->where('is_new', true)->count();
 
         // Project breakdown
         $projectCounts = Entry::where('staff_id', $user->id)
@@ -77,25 +69,22 @@ class DailyStatsWidget extends StatsOverviewWidget
             ->where('entry_date', $today)
             ->where('type', Entry::TYPE_POINT);
 
-        $total    = $query->count();
-        $newCount = $query->where('is_new', true)->count();
-
-        $first = Entry::where('staff_id', $user->id)->where('entry_date', $today)->where('type', Entry::TYPE_POINT)->min('entry_time');
-        $last  = Entry::where('staff_id', $user->id)->where('entry_date', $today)->where('type', Entry::TYPE_POINT)->max('entry_time');
+        $total    = (clone $query)->count();
+        $newCount = (clone $query)->where('is_new', true)->count();
+        $first    = (clone $query)->min('entry_time');
+        $last     = (clone $query)->max('entry_time');
 
         return [
             Stat::make('الحالات المخدومة', $total)->color('primary')->icon('heroicon-o-check-circle'),
             Stat::make('جديدة على النظام', $newCount)->color('success')->icon('heroicon-o-user-plus'),
-            Stat::make('أول حالة', $first ? Carbon::parse($first)->setTimezone('Asia/Gaza')->format('H:i') : '—')->color('gray'),
-            Stat::make('آخر حالة', $last  ? Carbon::parse($last)->setTimezone('Asia/Gaza')->format('H:i') : '—')->color('gray'),
+            Stat::make('أول حالة', $first ? Carbon::parse($first)->format('H:i') : '—')->color('gray'),
+            Stat::make('آخر حالة', $last ? Carbon::parse($last)->format('H:i') : '—')->color('gray'),
         ];
     }
 
-    private function adminStats(string $today, $center): array
+    private function adminStats(string $today): array
     {
-        $centerId = $center?->id;
         $base = Entry::where('entry_date', $today);
-        if ($centerId) $base->where('center_id', $centerId);
 
         $reception  = (clone $base)->where('type', Entry::TYPE_RECEPTION)->count();
         $newCases   = (clone $base)->where('is_new', true)->count();

@@ -1,7 +1,8 @@
 <x-filament-panels::page>
 @php
-    $centerId   = $this->userCenterId();
-    $centerName = $centerId ? \App\Models\Center::find($centerId)?->name : null;
+    $center      = \App\Models\Center::find($this->userCenterId());
+    $centerName  = $center?->name;
+    $centerColor = $center?->color ?? 'gray';
     $projects   = $this->getAvailableProjects();
     $stats      = $this->getTodayStats();
 @endphp
@@ -19,7 +20,7 @@
                     </x-filament::input.select>
                 </x-filament::input.wrapper>
             @elseif ($centerName)
-                <x-filament::badge icon="heroicon-m-building-office-2" size="lg">{{ $centerName }}</x-filament::badge>
+                <x-filament::badge :color="$centerColor" icon="heroicon-m-building-office-2" size="lg">{{ $centerName }}</x-filament::badge>
             @else
                 <x-filament::badge color="danger" icon="heroicon-m-exclamation-triangle">لا يوجد مركز مرتبط بحسابك</x-filament::badge>
             @endif

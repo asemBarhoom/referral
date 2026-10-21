@@ -7,22 +7,15 @@ use App\Models\Center;
 use App\Models\ChangeLog;
 use App\Models\Entry;
 use App\Models\EntryProject;
-use App\Models\Project;
+use App\Models\Setting;
 use App\Models\User;
-use Filament\Forms\Components\CheckboxList;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Concerns\InteractsWithForms;
-use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
-use Filament\Schemas\Schema;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class EntryPage extends Page
 {
-    use InteractsWithForms;
-
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-pencil-square';
     protected string $view = 'filament.pages.entry-page';
     protected static ?string $title = 'شاشة الإدخال';
@@ -33,21 +26,15 @@ class EntryPage extends Page
     public array $selected_projects = [];
     public ?int $center_id = null;
 
-    private ?array $userCenters = null;
-
     public ?Beneficiary $found_beneficiary = null;
     public ?Entry $today_entry = null;
     public bool $searched = false;
 
+    private ?array $userCenters = null;
+
     public static function canAccess(): bool
     {
-        $role = auth()->user()?->role;
-        return in_array($role, [
-            User::ROLE_RECEPTION,
-            User::ROLE_POINT,
-            User::ROLE_ADMIN,
-            'super_admin',
-        ]);
+        return in_array(auth()->user()?->role, [User::ROLE_RECEPTION, User::ROLE_POINT, User::ROLE_ADMIN], true);
     }
 
     public function mount(): void
@@ -56,13 +43,9 @@ class EntryPage extends Page
         $this->center_id = $this->userCenterId();
     }
 
-    public function getUserCenters(): array
+    public function getSubheading(): ?string
     {
-        return $this->userCenters ??= auth()->user()->centers()
-            ->where('centers.is_active', true)
-            ->orderBy('centers.id')
-            ->pluck('centers.name', 'centers.id')
-            ->toArray();
+        return Setting::get($this->entryType() === Entry::TYPE_RECEPTION ? 'hint_reception' : 'hint_point');
     }
 
     public function updatedCenterId(): void
@@ -75,13 +58,6 @@ class EntryPage extends Page
         $this->resetForm();
     }
 
-    public function getSubheading(): ?string
-    {
-        $key = auth()->user()?->role === User::ROLE_RECEPTION ? 'hint_reception' : 'hint_point';
-
-        return \App\Models\Setting::where('key', $key)->value('value');
-    }
-
     public function resetForm(): void
     {
         $this->reset(['identity_number', 'name', 'selected_projects', 'found_beneficiary', 'today_entry', 'searched']);
@@ -90,155 +66,146 @@ class EntryPage extends Page
 
     public function searchBeneficiary(): void
     {
-        $normalized = preg_replace_callback('/[٠-٩]/u', fn($m) => mb_ord($m[0], 'UTF-8') - mb_ord('٠', 'UTF-8'), $this->identity_number ?? '');
+        $normalized = preg_replace_callback('/[٠-٩]/u', fn ($m) => mb_ord($m[0], 'UTF-8') - mb_ord('٠', 'UTF-8'), $this->identity_number ?? '');
         $normalized = preg_replace('/\s+/', '', $normalized);
 
-        if (strlen($normalized) !== 9 || !ctype_digit($normalized)) {
+        if (strlen($normalized) !== 9 || ! ctype_digit($normalized)) {
             Notification::make()->title('رقم الهوية يجب أن يكون 9 أرقام')->danger()->send();
             return;
         }
 
-        $this->identity_number = $normalized;
-        $this->found_beneficiary = Beneficiary::where('identity_number', $normalized)->first();
-        $this->searched = true;
-
-        $gazaDate = Carbon::now('Asia/Gaza')->toDateString();
-
-        if ($this->found_beneficiary) {
-            // Check if already entered today
-            $this->today_entry = Entry::where('beneficiary_id', $this->found_beneficiary->id)
-                ->where('entry_date', $gazaDate)
-                ->where('center_id', $this->userCenterId())
-                ->latest('entry_time')
-                ->first();
-
-            // Pre-select projects from last entry
-            $source = $this->today_entry ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
-                ->where('center_id', $this->userCenterId())
-                ->latest('entry_time')
-                ->first();
-            $this->selected_projects = $source?->projects->pluck('id')->map(fn ($id) => (string) $id)->all() ?? [];
-
-            $this->name = $this->found_beneficiary->name;
-        } else {
-            $this->today_entry = null;
-            $this->selected_projects = [];
-            $this->name = null;
+        if (Setting::get('checksum_enabled', false) && ! $this->passesChecksum($normalized)) {
+            Notification::make()->title('رقم الهوية غير صحيح')->body('رقم التحقق لا يطابق، تأكد من الأرقام.')->danger()->send();
+            return;
         }
+
+        $this->identity_number   = $normalized;
+        $this->found_beneficiary = Beneficiary::where('identity_number', $normalized)->first();
+        $this->today_entry       = null;
+        $this->selected_projects = [];
+        $this->name              = $this->found_beneficiary?->name;
+        $this->searched          = true;
+
+        if (! $this->found_beneficiary) {
+            return;
+        }
+
+        $this->today_entry = $this->ownEntryTodayQuery()->first();
+
+        $source = $this->today_entry ?? Entry::where('beneficiary_id', $this->found_beneficiary->id)
+            ->where('center_id', $this->userCenterId())
+            ->latest('entry_time')
+            ->first();
+
+        $this->selected_projects = $source?->projects->pluck('id')->map(fn ($id) => (string) $id)->all() ?? [];
     }
 
     public function submit(): void
     {
-        if (!$this->searched) return;
-
-        $normalized = $this->identity_number;
-        if (!$normalized || strlen($normalized) !== 9) return;
-
-        $this->selected_projects = array_values(array_intersect(
-            $this->selected_projects,
-            array_map('strval', array_keys($this->getAvailableProjects())),
-        ));
-
-        if (empty($this->selected_projects)) {
-            Notification::make()->title('اختر مشروعاً واحداً على الأقل')->danger()->send();
+        if (! $this->searched || strlen((string) $this->identity_number) !== 9) {
             return;
         }
 
-        $user = auth()->user();
-        $gazaNow = Carbon::now('Asia/Gaza');
         $centerId = $this->userCenterId();
-        if (!$centerId) {
+        if (! $centerId) {
             Notification::make()->title('لا يوجد مركز مرتبط بحسابك')->danger()->send();
             return;
         }
 
-        DB::transaction(function () use ($normalized, $user, $gazaNow, $centerId) {
-            $isNew = false;
+        $projectIds = array_values(array_intersect(
+            $this->selected_projects,
+            array_map('strval', array_keys($this->getAvailableProjects())),
+        ));
 
-            if (!$this->found_beneficiary) {
-                $this->found_beneficiary = Beneficiary::create([
-                    'identity_number' => $normalized,
-                    'name' => filled($this->name) ? $this->name : null,
-                    'first_entry_date' => $gazaNow->toDateString(),
-                ]);
-                $isNew = true;
-            } else {
-                // Update name if provided and changed
-                if (filled($this->name) && $this->name !== $this->found_beneficiary->name) {
-                    $old = $this->found_beneficiary->name;
-                    $this->found_beneficiary->update(['name' => $this->name]);
-                    ChangeLog::create([
-                        'user_id' => $user->id,
-                        'action' => 'updated_name',
-                        'subject_type' => Beneficiary::class,
-                        'subject_id' => $this->found_beneficiary->id,
-                        'old_value' => ['name' => $old],
-                        'new_value' => ['name' => $this->name],
-                        'changed_at' => $gazaNow,
-                    ]);
-                }
+        if (empty($projectIds)) {
+            Notification::make()->title('اختر مشروعاً واحداً على الأقل')->danger()->send();
+            return;
+        }
+
+        // A point service is recorded once per project per day, whoever served it.
+        $skipped = [];
+        if (! $this->today_entry && $this->found_beneficiary && $this->entryType() === Entry::TYPE_POINT) {
+            $servedEntryIds = Entry::where('beneficiary_id', $this->found_beneficiary->id)
+                ->where('entry_date', $this->today())
+                ->where('type', Entry::TYPE_POINT)
+                ->pluck('id');
+
+            $skipped = EntryProject::whereIn('entry_id', $servedEntryIds)
+                ->whereIn('project_id', $projectIds)
+                ->pluck('project_id')
+                ->map(fn ($id) => (string) $id)
+                ->all();
+
+            $projectIds = array_values(array_diff($projectIds, $skipped));
+
+            if (empty($projectIds)) {
+                Notification::make()->title('هذه الحالة خُدمت اليوم في جميع المشاريع المختارة')->warning()->send();
+                return;
             }
+        }
 
-            if ($this->today_entry) {
-                // Update projects on same-day same-center entry
-                $old = $this->today_entry->projects->pluck('id')->toArray();
-                $this->today_entry->projects()->sync($this->selected_projects);
-                if (array_diff($old, $this->selected_projects) || array_diff($this->selected_projects, $old)) {
-                    ChangeLog::create([
-                        'user_id' => $user->id,
-                        'action' => 'updated_entry_projects',
-                        'subject_type' => Entry::class,
-                        'subject_id' => $this->today_entry->id,
-                        'old_value' => ['project_ids' => $old],
-                        'new_value' => ['project_ids' => $this->selected_projects],
-                        'changed_at' => $gazaNow,
-                    ]);
-                }
-            } else {
-                $entry = Entry::create([
-                    'beneficiary_id' => $this->found_beneficiary->id,
-                    'center_id' => $centerId,
-                    'staff_id' => $user->id,
-                    'type' => $user->role === User::ROLE_RECEPTION ? Entry::TYPE_RECEPTION : Entry::TYPE_POINT,
-                    'is_new' => $isNew,
-                    'entry_time' => $gazaNow,
-                    'entry_date' => $gazaNow->toDateString(),
-                ]);
+        $isUpdate = (bool) $this->today_entry;
 
-                // For point staff: check duplicate per project per day
-                if ($user->role === User::ROLE_POINT) {
-                    $todayEntryIds = Entry::where('beneficiary_id', $this->found_beneficiary->id)
-                        ->where('entry_date', $gazaNow->toDateString())
-                        ->pluck('id');
-                    $alreadyProjects = EntryProject::whereIn('entry_id', $todayEntryIds)
-                        ->whereIn('project_id', $this->selected_projects)
-                        ->pluck('project_id')
-                        ->toArray();
-                    $newProjects = array_diff($this->selected_projects, $alreadyProjects);
-                    if (empty($newProjects)) {
-                        $entry->delete();
-                        Notification::make()->title('هذه الحالة أُدخلت اليوم في جميع المشاريع المختارة')->warning()->send();
-                        return;
-                    }
-                    $entry->projects()->sync($newProjects);
-                } else {
-                    $entry->projects()->sync($this->selected_projects);
-                }
-            }
-        });
+        DB::transaction(fn () => $this->persist($centerId, $projectIds));
 
-        Notification::make()
-            ->title($this->today_entry ? 'تم تحديث الإدخال' : 'تم الإدخال بنجاح')
-            ->success()
-            ->send();
+        $notification = Notification::make()
+            ->title($isUpdate ? 'تم تحديث الإدخال' : 'تم الإدخال بنجاح')
+            ->success();
 
+        if ($skipped) {
+            $names = array_intersect_key($this->getAvailableProjects(), array_flip($skipped));
+            $notification->body('تم تخطي مشاريع مسجلة اليوم: ' . implode('، ', $names));
+        }
+
+        $notification->send();
         $this->resetForm();
+    }
+
+    private function persist(int $centerId, array $projectIds): void
+    {
+        $user = auth()->user();
+        $now  = Carbon::now('Asia/Gaza');
+
+        $beneficiary = $this->found_beneficiary ?? Beneficiary::firstOrCreate(
+            ['identity_number' => $this->identity_number],
+            ['name' => filled($this->name) ? $this->name : null, 'first_entry_date' => $now->toDateString()],
+        );
+        $isNew = $beneficiary->wasRecentlyCreated;
+
+        if (! $isNew && filled($this->name) && $this->name !== $beneficiary->name) {
+            $this->log('updated_name', $beneficiary, ['name' => $beneficiary->name], ['name' => $this->name]);
+            $beneficiary->update(['name' => $this->name]);
+        }
+
+        if ($this->today_entry) {
+            $old = $this->today_entry->projects()->pluck('projects.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
+            $this->today_entry->projects()->sync($projectIds);
+            $new = collect($projectIds)->sort()->values()->all();
+
+            if ($old !== $new) {
+                $this->log('updated_entry_projects', $this->today_entry, ['project_ids' => $old], ['project_ids' => $new]);
+            }
+
+            return;
+        }
+
+        Entry::create([
+            'beneficiary_id' => $beneficiary->id,
+            'center_id'      => $centerId,
+            'staff_id'       => $user->id,
+            'type'           => $this->entryType(),
+            'is_new'         => $isNew,
+            'entry_time'     => $now,
+            'entry_date'     => $now->toDateString(),
+        ])->projects()->sync($projectIds);
     }
 
     public function getAvailableProjects(): array
     {
         $center = Center::find($this->userCenterId());
-        if (!$center) return [];
+        if (! $center) {
+            return [];
+        }
 
         $userProjectIds = auth()->user()->projects()->pluck('projects.id');
 
@@ -248,6 +215,15 @@ class EntryPage extends Page
             ->when($userProjectIds->isNotEmpty(), fn ($q) => $q->whereIn('projects.id', $userProjectIds))
             ->orderBy('projects.display_order')
             ->pluck('projects.name', 'projects.id')
+            ->toArray();
+    }
+
+    public function getUserCenters(): array
+    {
+        return $this->userCenters ??= auth()->user()->centers()
+            ->where('centers.is_active', true)
+            ->orderBy('centers.id')
+            ->pluck('centers.name', 'centers.id')
             ->toArray();
     }
 
@@ -261,18 +237,59 @@ class EntryPage extends Page
 
     public function getTodayStats(): array
     {
-        $user = auth()->user();
-        $gazaDate = Carbon::now('Asia/Gaza')->toDateString();
-        $centerId = $this->userCenterId();
+        $query = Entry::where('staff_id', auth()->id())
+            ->where('entry_date', $this->today())
+            ->when($this->userCenterId(), fn ($q, $centerId) => $q->where('center_id', $centerId));
 
-        $query = Entry::where('staff_id', $user->id)
-            ->where('entry_date', $gazaDate);
-
-        if ($centerId) $query->where('center_id', $centerId);
-
-        $total = $query->count();
-        $newCount = $query->where('is_new', true)->count();
+        $total    = (clone $query)->count();
+        $newCount = (clone $query)->where('is_new', true)->count();
 
         return compact('total', 'newCount');
+    }
+
+    private function entryType(): string
+    {
+        return auth()->user()?->role === User::ROLE_RECEPTION ? Entry::TYPE_RECEPTION : Entry::TYPE_POINT;
+    }
+
+    // Reception shares one arrival entry per center per day; point staff only touch their own.
+    private function ownEntryTodayQuery()
+    {
+        return Entry::where('beneficiary_id', $this->found_beneficiary->id)
+            ->where('entry_date', $this->today())
+            ->where('center_id', $this->userCenterId())
+            ->where('type', $this->entryType())
+            ->when($this->entryType() === Entry::TYPE_POINT, fn ($q) => $q->where('staff_id', auth()->id()))
+            ->latest('entry_time');
+    }
+
+    private function today(): string
+    {
+        return Carbon::now('Asia/Gaza')->toDateString();
+    }
+
+    // Palestinian ID check digit (Luhn variant).
+    private function passesChecksum(string $id): bool
+    {
+        $sum = 0;
+        foreach (str_split($id) as $i => $digit) {
+            $n = (int) $digit * ($i % 2 + 1);
+            $sum += $n > 9 ? $n - 9 : $n;
+        }
+
+        return $sum % 10 === 0;
+    }
+
+    private function log(string $action, $subject, array $old, array $new): void
+    {
+        ChangeLog::create([
+            'user_id'      => auth()->id(),
+            'action'       => $action,
+            'subject_type' => $subject::class,
+            'subject_id'   => $subject->id,
+            'old_value'    => $old,
+            'new_value'    => $new,
+            'changed_at'   => Carbon::now('Asia/Gaza'),
+        ]);
     }
 }

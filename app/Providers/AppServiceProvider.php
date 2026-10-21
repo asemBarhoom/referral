@@ -29,6 +29,6 @@ class AppServiceProvider extends ServiceProvider
         FilamentShield::enforcePolicies();
 
         // Admins have full access; policies only gate the other roles.
-        Gate::before(fn (User $user) => $user->role === User::ROLE_ADMIN ? true : null);
+        Gate::before(fn (User $user) => $user->isAdmin() ? true : null);
     }
 }
