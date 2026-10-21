@@ -9,6 +9,6 @@ trait RestrictsToDashboardAdmin
     public static function canViewAny(): bool
     {
         $role = auth()->user()?->role;
-        return in_array($role, [User::ROLE_DASHBOARD_ADMIN, 'super_admin']);
+        return in_array($role, [User::ROLE_ADMIN, 'super_admin']);
     }
 }

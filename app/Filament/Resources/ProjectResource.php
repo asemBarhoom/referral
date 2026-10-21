@@ -35,10 +35,10 @@ class ProjectResource extends Resource
                 ->label('الاسم')
                 ->required()
                 ->maxLength(100),
-            Forms\Components\Toggle::make('allow_exceptional_service')
-                ->label('السماح بالخدمة الاستثنائية')
-                ->helperText('يُفعَّل لكل مشروع على حدة')
-                ->default(false),
+            Forms\Components\TextInput::make('display_order')
+                ->label('الترتيب')
+                ->numeric()
+                ->default(0),
             Forms\Components\Toggle::make('is_active')
                 ->label('نشط')
                 ->default(true),
@@ -49,16 +49,14 @@ class ProjectResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('display_order')->label('#')->sortable(),
                 Tables\Columns\TextColumn::make('code')->label('الرمز')->sortable()->searchable(),
                 Tables\Columns\TextColumn::make('name')->label('الاسم')->searchable(),
-                Tables\Columns\IconColumn::make('allow_exceptional_service')
-                    ->label('استثنائي')
-                    ->boolean(),
                 Tables\Columns\IconColumn::make('is_active')->label('نشط')->boolean(),
             ])
+            ->defaultSort('display_order')
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_active')->label('الحالة'),
-                Tables\Filters\TernaryFilter::make('allow_exceptional_service')->label('استثنائي'),
             ])
             ->actions([Actions\EditAction::make()])
             ->bulkActions([

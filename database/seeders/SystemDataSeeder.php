@@ -3,9 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Center;
-use App\Models\IdentityType;
 use App\Models\Project;
-use App\Models\ReasonOption;
 use App\Models\Setting;
 use Illuminate\Database\Seeder;
 
@@ -16,15 +14,13 @@ class SystemDataSeeder extends Seeder
         $this->seedCenters();
         $this->seedProjects();
         $this->seedCenterProjects();
-        $this->seedIdentityTypes();
-        $this->seedReasonOptions();
         $this->seedSettings();
     }
 
     private function seedCenters(): void
     {
         $centers = [
-            ['code' => 'GAZA', 'name' => 'مركز غزة', 'color' => 'blue'],
+            ['code' => 'GAZA', 'name' => 'مركز غزة',      'color' => 'blue'],
             ['code' => 'KHY',  'name' => 'مركز خانيونس', 'color' => 'green'],
         ];
 
@@ -36,14 +32,14 @@ class SystemDataSeeder extends Seeder
     private function seedProjects(): void
     {
         $projects = [
-            ['code' => 'WFP',    'name' => 'WFP'],
-            ['code' => 'MAP',    'name' => 'MAP'],
-            ['code' => 'WHH',    'name' => 'WHH'],
-            ['code' => 'UNICEF', 'name' => 'UNICEF'],
-            ['code' => 'STC',    'name' => 'Save The Children'],
-            ['code' => 'CELIAC', 'name' => 'السيلياك'],
-            ['code' => 'MECA',   'name' => 'MECA'],
-            ['code' => 'TAAWON', 'name' => 'التعاون'],
+            ['code' => 'WFP',    'name' => 'WFP',              'display_order' => 1],
+            ['code' => 'MAP',    'name' => 'MAP',              'display_order' => 2],
+            ['code' => 'WHH',    'name' => 'WHH',              'display_order' => 3],
+            ['code' => 'UNICEF', 'name' => 'UNICEF',           'display_order' => 4],
+            ['code' => 'STC',    'name' => 'Save The Children','display_order' => 5],
+            ['code' => 'CELIAC', 'name' => 'السيلياك',         'display_order' => 6],
+            ['code' => 'MECA',   'name' => 'MECA',             'display_order' => 7],
+            ['code' => 'TAAWON', 'name' => 'التعاون',          'display_order' => 8],
         ];
 
         foreach ($projects as $data) {
@@ -53,7 +49,7 @@ class SystemDataSeeder extends Seeder
 
     private function seedCenterProjects(): void
     {
-        $centers = Center::all()->keyBy('code');
+        $centers  = Center::all();
         $projects = Project::all();
 
         foreach ($centers as $center) {
@@ -63,51 +59,13 @@ class SystemDataSeeder extends Seeder
         }
     }
 
-    private function seedIdentityTypes(): void
-    {
-        $types = [
-            ['name' => 'mother', 'printed_name' => 'أم',    'is_system' => true],
-            ['name' => 'father', 'printed_name' => 'أب',    'is_system' => true],
-            ['name' => 'child',  'printed_name' => 'طفل',   'is_system' => true],
-        ];
-
-        foreach ($types as $data) {
-            IdentityType::firstOrCreate(['name' => $data['name']], $data);
-        }
-    }
-
-    private function seedReasonOptions(): void
-    {
-        $reasons = [
-            // Exception reasons
-            ['category' => 'exception', 'name' => 'استثناء طارئ'],
-            ['category' => 'exception', 'name' => 'توجيه من المشروع'],
-            // New project reasons
-            ['category' => 'new_project', 'name' => 'توسيع تغطية المشروع'],
-            ['category' => 'new_project', 'name' => 'إحالة من مركز آخر'],
-            // Center transfer reasons
-            ['category' => 'center_transfer', 'name' => 'تغيير مكان الإقامة'],
-            ['category' => 'center_transfer', 'name' => 'طلب النقل'],
-            // Cancel visit reasons
-            ['category' => 'cancel_visit', 'name' => 'خطأ في البيانات'],
-            ['category' => 'cancel_visit', 'name' => 'تسجيل مكرر'],
-        ];
-
-        foreach ($reasons as $data) {
-            ReasonOption::firstOrCreate(
-                ['category' => $data['category'], 'name' => $data['name']],
-                $data
-            );
-        }
-    }
-
     private function seedSettings(): void
     {
         $settings = [
-            ['key' => 'idle_timeout',        'value' => '30',   'type' => 'integer'],
-            ['key' => 'checksum_validation',  'value' => 'true', 'type' => 'boolean'],
-            ['key' => 'search_limit',         'value' => '30',   'type' => 'integer'], // per minute per user
-            ['key' => 'name_edit_timeout',    'value' => '15',   'type' => 'integer'], // minutes after creation
+            ['key' => 'idle_timeout',     'value' => '30',                                           'type' => 'integer'],
+            ['key' => 'checksum_enabled', 'value' => 'true',                                         'type' => 'boolean'],
+            ['key' => 'hint_reception',   'value' => 'أدخل رقم هوية ولي الأمر، ثم اختر المشاريع التي ستتوجه لها الحالة.', 'type' => 'string'],
+            ['key' => 'hint_point',       'value' => 'أدخل كل حالة تخدمها، واحدة تلو الأخرى، فور تقديم الخدمة.',         'type' => 'string'],
         ];
 
         foreach ($settings as $data) {

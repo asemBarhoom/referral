@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('code', 20)->unique(); // WFP, MAP, WHH, etc.
             $table->string('name');
-            $table->boolean('allow_exceptional_service')->default(false);
+            $table->unsignedSmallInteger('display_order')->default(0);
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

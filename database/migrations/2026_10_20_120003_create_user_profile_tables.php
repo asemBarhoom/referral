@@ -8,10 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Extend users with staff profile info
         Schema::table('users', function (Blueprint $table) {
-            $table->string('role')->nullable(); // reception, project_staff, center_admin, dashboard_admin
-            $table->boolean('is_active')->default(true)->after('email');
+            $table->string('username')->unique()->nullable()->after('name');
+            $table->string('role')->nullable()->after('username'); // reception, point, admin
+            $table->boolean('is_active')->default(true)->after('role');
         });
 
         Schema::create('user_centers', function (Blueprint $table) {
@@ -27,10 +27,9 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->foreignId('project_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('center_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
 
-            $table->unique(['user_id', 'project_id', 'center_id']);
+            $table->unique(['user_id', 'project_id']);
         });
     }
 
@@ -39,7 +38,7 @@ return new class extends Migration
         Schema::dropIfExists('user_projects');
         Schema::dropIfExists('user_centers');
         Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn(['role', 'is_active']);
+            $table->dropColumn(['username', 'role', 'is_active']);
         });
     }
 };

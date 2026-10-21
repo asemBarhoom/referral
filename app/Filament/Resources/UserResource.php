@@ -2,8 +2,9 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Concerns\RestrictsToDashboardAdmin;
+use App\Filament\Concerns\RestrictsToAdminRoles;
 use App\Filament\Resources\UserResource\Pages;
+use App\Models\Project;
 use App\Models\User;
 use Filament\Forms;
 use Filament\Actions;
@@ -15,7 +16,7 @@ use Filament\Tables\Table;
 
 class UserResource extends Resource
 {
-    use RestrictsToDashboardAdmin;
+    use RestrictsToAdminRoles;
 
     protected static ?string $model = User::class;
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-user-group';
@@ -32,11 +33,12 @@ class UserResource extends Resource
                     ->label('الاسم')
                     ->required()
                     ->maxLength(100),
-                Forms\Components\TextInput::make('email')
-                    ->label('البريد الإلكتروني')
-                    ->email()
+                Forms\Components\TextInput::make('username')
+                    ->label('اسم المستخدم')
                     ->required()
-                    ->unique(ignoreRecord: true),
+                    ->maxLength(50)
+                    ->unique(ignoreRecord: true)
+                    ->ascii(),
                 Forms\Components\TextInput::make('password')
                     ->label('كلمة المرور')
                     ->password()
@@ -46,22 +48,28 @@ class UserResource extends Resource
             ])->columns(2),
             Section::make('الدور والمراكز')->schema([
                 Forms\Components\Select::make('role')
-                    ->label('الدور')
+                    ->label('النوع')
                     ->options([
-                        User::ROLE_RECEPTION       => 'موظف استقبال',
-                        User::ROLE_PROJECT_STAFF   => 'موظف نقطة مشروع',
-                        User::ROLE_CENTER_ADMIN    => 'أدمن مركز',
-                        User::ROLE_DASHBOARD_ADMIN => 'أدمن لوحة التحكم',
+                        User::ROLE_RECEPTION => 'موظف استقبال',
+                        User::ROLE_POINT     => 'موظف نقطة',
+                        User::ROLE_ADMIN     => 'مدير النظام',
                     ])
-                    ->required(),
+                    ->required()
+                    ->live(),
                 Forms\Components\Toggle::make('is_active')
                     ->label('نشط')
                     ->default(true),
                 Forms\Components\Select::make('centers')
-                    ->label('المراكز')
+                    ->label('المراكز المسموحة')
                     ->multiple()
                     ->relationship('centers', 'name')
                     ->preload(),
+                Forms\Components\Select::make('projects')
+                    ->label('المشاريع المسندة')
+                    ->multiple()
+                    ->relationship('projects', 'name')
+                    ->preload()
+                    ->visible(fn($get) => $get('role') === User::ROLE_POINT),
             ]),
         ]);
     }
@@ -71,16 +79,21 @@ class UserResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('name')->label('الاسم')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('email')->label('البريد')->searchable(),
+                Tables\Columns\TextColumn::make('username')->label('اسم المستخدم')->searchable(),
                 Tables\Columns\TextColumn::make('role')
-                    ->label('الدور')
+                    ->label('النوع')
                     ->badge()
-                    ->formatStateUsing(fn($s) => match ($s) {
-                        User::ROLE_RECEPTION       => 'استقبال',
-                        User::ROLE_PROJECT_STAFF   => 'نقطة مشروع',
-                        User::ROLE_CENTER_ADMIN    => 'أدمن مركز',
-                        User::ROLE_DASHBOARD_ADMIN => 'أدمن لوحة التحكم',
-                        default => $s,
+                    ->color(fn($state) => match ($state) {
+                        User::ROLE_RECEPTION => 'info',
+                        User::ROLE_POINT     => 'warning',
+                        User::ROLE_ADMIN     => 'danger',
+                        default => 'gray',
+                    })
+                    ->formatStateUsing(fn($state) => match ($state) {
+                        User::ROLE_RECEPTION => 'استقبال',
+                        User::ROLE_POINT     => 'نقطة',
+                        User::ROLE_ADMIN     => 'أدمن',
+                        default => $state,
                     }),
                 Tables\Columns\IconColumn::make('is_active')->label('نشط')->boolean(),
                 Tables\Columns\TextColumn::make('centers.name')
@@ -90,12 +103,11 @@ class UserResource extends Resource
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('role')
-                    ->label('الدور')
+                    ->label('النوع')
                     ->options([
-                        User::ROLE_RECEPTION       => 'استقبال',
-                        User::ROLE_PROJECT_STAFF   => 'نقطة مشروع',
-                        User::ROLE_CENTER_ADMIN    => 'أدمن مركز',
-                        User::ROLE_DASHBOARD_ADMIN => 'أدمن لوحة التحكم',
+                        User::ROLE_RECEPTION => 'استقبال',
+                        User::ROLE_POINT     => 'نقطة',
+                        User::ROLE_ADMIN     => 'أدمن',
                     ]),
                 Tables\Filters\TernaryFilter::make('is_active')->label('الحالة'),
             ])

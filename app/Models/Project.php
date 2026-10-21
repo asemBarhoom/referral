@@ -8,11 +8,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Project extends Model
 {
-    protected $fillable = ['code', 'name', 'allow_exceptional_service', 'is_active'];
+    protected $fillable = ['code', 'name', 'display_order', 'is_active'];
 
     protected $casts = [
-        'allow_exceptional_service' => 'boolean',
         'is_active' => 'boolean',
+        'display_order' => 'integer',
     ];
 
     public function centers(): BelongsToMany
@@ -22,13 +22,13 @@ class Project extends Model
             ->withTimestamps();
     }
 
-    public function beneficiaryProjects(): HasMany
+    public function users(): BelongsToMany
     {
-        return $this->hasMany(BeneficiaryProject::class);
+        return $this->belongsToMany(User::class, 'user_projects')->withTimestamps();
     }
 
-    public function serviceRecords(): HasMany
+    public function entryProjects(): HasMany
     {
-        return $this->hasMany(ServiceRecord::class);
+        return $this->hasMany(EntryProject::class);
     }
 }

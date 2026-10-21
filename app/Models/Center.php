@@ -19,18 +19,13 @@ class Center extends Model
             ->withTimestamps();
     }
 
-    public function devices(): HasMany
+    public function users(): BelongsToMany
     {
-        return $this->hasMany(Device::class);
+        return $this->belongsToMany(User::class, 'user_centers')->withTimestamps();
     }
 
-    public function beneficiaries(): HasMany
+    public function entries(): HasMany
     {
-        return $this->hasMany(Beneficiary::class, 'registration_center_id');
-    }
-
-    public function receptionVisits(): HasMany
-    {
-        return $this->hasMany(ReceptionVisit::class);
+        return $this->hasMany(Entry::class);
     }
 }

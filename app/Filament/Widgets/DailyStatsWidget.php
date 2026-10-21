@@ -2,10 +2,9 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\BeneficiaryProject;
-use App\Models\ReceptionVisit;
-use App\Models\ServiceRecord;
-use App\Models\VisitReferral;
+use App\Models\Entry;
+use App\Models\Project;
+use App\Models\User;
 use Carbon\Carbon;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
@@ -14,93 +13,100 @@ class DailyStatsWidget extends StatsOverviewWidget
 {
     protected static ?int $sort = 1;
 
+    public static function canView(): bool
+    {
+        return auth()->check();
+    }
+
     protected function getStats(): array
     {
         $user   = auth()->user();
-        $center = $user->centers()->first();
         $today  = Carbon::now('Asia/Gaza')->toDateString();
-
-        if (!$center) {
-            return [
-                Stat::make('', 'لم يتم تعيين مركز لحسابك')->color('warning'),
-            ];
-        }
+        $center = $user->centers()->first();
 
         $role = $user->role;
 
-        if ($role === \App\Models\User::ROLE_PROJECT_STAFF) {
-            return $this->projectStats($center, $today, $user);
+        if ($role === User::ROLE_ADMIN || $role === 'super_admin') {
+            return $this->adminStats($today, $center);
         }
 
-        return $this->receptionStats($center, $today);
+        if ($role === User::ROLE_POINT) {
+            return $this->pointStats($today, $user);
+        }
+
+        return $this->receptionStats($today, $center, $user);
     }
 
-    private function receptionStats($center, string $today): array
+    private function receptionStats(string $today, $center, $user): array
     {
-        $visits = ReceptionVisit::where('center_id', $center->id)
-            ->where('visit_date', $today)
-            ->where('status', ReceptionVisit::STATUS_VALID)
-            ->count();
+        $query = Entry::where('staff_id', $user->id)
+            ->where('entry_date', $today)
+            ->where('type', Entry::TYPE_RECEPTION);
 
-        $newCases = ReceptionVisit::where('center_id', $center->id)
-            ->where('visit_date', $today)
-            ->where('status', ReceptionVisit::STATUS_VALID)
-            ->where('type', ReceptionVisit::TYPE_NEW)
-            ->count();
+        $total    = $query->count();
+        $newCount = $query->where('is_new', true)->count();
 
-        $referrals = VisitReferral::whereHas('visit', fn($q) =>
-            $q->where('center_id', $center->id)
-              ->where('visit_date', $today)
-              ->where('status', ReceptionVisit::STATUS_VALID)
-        )->count();
+        // Project breakdown
+        $projectCounts = Entry::where('staff_id', $user->id)
+            ->where('entry_date', $today)
+            ->where('type', Entry::TYPE_RECEPTION)
+            ->join('entry_projects', 'entries.id', '=', 'entry_projects.entry_id')
+            ->join('projects', 'entry_projects.project_id', '=', 'projects.id')
+            ->groupBy('projects.name')
+            ->selectRaw('projects.name, count(*) as cnt')
+            ->pluck('cnt', 'name')
+            ->map(fn($v) => (string)$v)
+            ->toArray();
 
-        $served = ServiceRecord::where('center_id', $center->id)
-            ->where('service_date', $today)
-            ->where('review_status', '!=', ServiceRecord::REVIEW_REJECTED)
-            ->distinct('beneficiary_id')
-            ->count('beneficiary_id');
+        $stats = [
+            Stat::make('إجمالي الحالات', $total)->color('primary')->icon('heroicon-o-users'),
+            Stat::make('جديدة', $newCount)->color('success')->icon('heroicon-o-user-plus'),
+            Stat::make('متكررة', $total - $newCount)->color('gray')->icon('heroicon-o-arrow-path'),
+        ];
+
+        foreach ($projectCounts as $pname => $cnt) {
+            $stats[] = Stat::make($pname, $cnt)->color('info');
+        }
+
+        return $stats;
+    }
+
+    private function pointStats(string $today, $user): array
+    {
+        $query = Entry::where('staff_id', $user->id)
+            ->where('entry_date', $today)
+            ->where('type', Entry::TYPE_POINT);
+
+        $total    = $query->count();
+        $newCount = $query->where('is_new', true)->count();
+
+        $first = Entry::where('staff_id', $user->id)->where('entry_date', $today)->where('type', Entry::TYPE_POINT)->min('entry_time');
+        $last  = Entry::where('staff_id', $user->id)->where('entry_date', $today)->where('type', Entry::TYPE_POINT)->max('entry_time');
 
         return [
-            Stat::make('الزيارات', $visits)->color('primary')->icon('heroicon-o-users'),
-            Stat::make('حالات جديدة', $newCases)->color('success')->icon('heroicon-o-user-plus'),
-            Stat::make('التحويلات', $referrals)->color('info')->icon('heroicon-o-arrow-right-circle'),
-            Stat::make('المخدومون', $served)->color('warning')->icon('heroicon-o-check-circle'),
+            Stat::make('الحالات المخدومة', $total)->color('primary')->icon('heroicon-o-check-circle'),
+            Stat::make('جديدة على النظام', $newCount)->color('success')->icon('heroicon-o-user-plus'),
+            Stat::make('أول حالة', $first ? Carbon::parse($first)->setTimezone('Asia/Gaza')->format('H:i') : '—')->color('gray'),
+            Stat::make('آخر حالة', $last  ? Carbon::parse($last)->setTimezone('Asia/Gaza')->format('H:i') : '—')->color('gray'),
         ];
     }
 
-    private function projectStats($center, string $today, $user): array
+    private function adminStats(string $today, $center): array
     {
-        $project = $user->projects()->first();
-        if (!$project) {
-            return [Stat::make('', 'لم يتم تعيين مشروع لحسابك')->color('warning')];
-        }
+        $centerId = $center?->id;
+        $base = Entry::where('entry_date', $today);
+        if ($centerId) $base->where('center_id', $centerId);
 
-        $served = ServiceRecord::where('center_id', $center->id)
-            ->where('project_id', $project->id)
-            ->where('service_date', $today)
-            ->where('review_status', '!=', ServiceRecord::REVIEW_REJECTED)
-            ->count();
-
-        $exceptional = ServiceRecord::where('center_id', $center->id)
-            ->where('project_id', $project->id)
-            ->where('service_date', $today)
-            ->where('is_exceptional', true)
-            ->count();
-
-        $referred = VisitReferral::whereHas('visit', fn($q) =>
-            $q->where('center_id', $center->id)
-              ->where('visit_date', $today)
-              ->where('status', ReceptionVisit::STATUS_VALID)
-        )->whereHas('beneficiaryProject', fn($q) =>
-            $q->where('project_id', $project->id)
-        )->count();
-
-        $notServed = max(0, $referred - $served);
+        $reception  = (clone $base)->where('type', Entry::TYPE_RECEPTION)->count();
+        $newCases   = (clone $base)->where('is_new', true)->count();
+        $pointTotal = (clone $base)->where('type', Entry::TYPE_POINT)->count();
+        $activeStaff = (clone $base)->distinct('staff_id')->count('staff_id');
 
         return [
-            Stat::make('خُدمت', $served)->color('success')->icon('heroicon-o-check-circle'),
-            Stat::make('محوّلة ولم تُخدم', $notServed)->color('warning')->icon('heroicon-o-clock'),
-            Stat::make('استثنائي', $exceptional)->color('danger')->icon('heroicon-o-exclamation-triangle'),
+            Stat::make('حالات الاستقبال', $reception)->color('primary')->icon('heroicon-o-users'),
+            Stat::make('حالات جديدة', $newCases)->color('success')->icon('heroicon-o-user-plus'),
+            Stat::make('حالات النقاط', $pointTotal)->color('info')->icon('heroicon-o-check-circle'),
+            Stat::make('موظفون نشطون', $activeStaff)->color('warning')->icon('heroicon-o-user-group'),
         ];
     }
 }

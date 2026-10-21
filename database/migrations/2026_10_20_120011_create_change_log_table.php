@@ -1,0 +1,28 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('change_log', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->string('action', 60); // updated_name, updated_entry_projects, corrected_identity, deleted_entry
+            $table->morphs('subject');    // the record that was changed
+            $table->json('old_value')->nullable();
+            $table->json('new_value')->nullable();
+            $table->timestamp('changed_at');
+
+            $table->index('changed_at');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('change_log');
+    }
+};
