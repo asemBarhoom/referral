@@ -63,7 +63,6 @@ class SystemDataSeeder extends Seeder
     {
         $settings = [
             ['key' => 'idle_timeout',     'value' => '30',                                           'type' => 'integer'],
-            ['key' => 'checksum_enabled', 'value' => 'true',                                         'type' => 'boolean'],
             ['key' => 'hint_reception',   'value' => 'أدخل رقم هوية ولي الأمر، ثم اختر المشاريع التي ستتوجه لها الحالة.', 'type' => 'string'],
             ['key' => 'hint_point',       'value' => 'أدخل كل حالة تخدمها، واحدة تلو الأخرى، فور تقديم الخدمة.',         'type' => 'string'],
         ];

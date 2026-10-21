@@ -74,11 +74,6 @@ class EntryPage extends Page
             return;
         }
 
-        if (Setting::get('checksum_enabled', false) && ! $this->passesChecksum($normalized)) {
-            Notification::make()->title('رقم الهوية غير صحيح')->body('رقم التحقق لا يطابق، تأكد من الأرقام.')->danger()->send();
-            return;
-        }
-
         $this->identity_number   = $normalized;
         $this->found_beneficiary = Beneficiary::where('identity_number', $normalized)->first();
         $this->today_entry       = null;
@@ -266,18 +261,6 @@ class EntryPage extends Page
     private function today(): string
     {
         return Carbon::now('Asia/Gaza')->toDateString();
-    }
-
-    // Palestinian ID check digit (Luhn variant).
-    private function passesChecksum(string $id): bool
-    {
-        $sum = 0;
-        foreach (str_split($id) as $i => $digit) {
-            $n = (int) $digit * ($i % 2 + 1);
-            $sum += $n > 9 ? $n - 9 : $n;
-        }
-
-        return $sum % 10 === 0;
     }
 
     private function log(string $action, $subject, array $old, array $new): void
