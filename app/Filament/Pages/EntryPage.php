@@ -31,7 +31,6 @@ class EntryPage extends Page
     public ?string $identity_number = null;
     public ?string $name = null;
     public array $selected_projects = [];
-    public ?int $center_id = null;
 
     public ?Beneficiary $found_beneficiary = null;
     public ?Entry $today_entry = null;
@@ -51,8 +50,6 @@ class EntryPage extends Page
     public function mount(): void
     {
         $this->reset();
-        $this->center_id = auth()->user()?->centers()->value('centers.id')
-            ?? ($this->canSwitchCenter() ? Center::where('is_active', true)->value('id') : null);
     }
 
     public function getSubheading(): ?string
@@ -60,21 +57,6 @@ class EntryPage extends Page
         $key = auth()->user()?->role === User::ROLE_RECEPTION ? 'hint_reception' : 'hint_point';
 
         return \App\Models\Setting::where('key', $key)->value('value');
-    }
-
-    public function canSwitchCenter(): bool
-    {
-        return in_array(auth()->user()?->role, [User::ROLE_ADMIN, 'super_admin']);
-    }
-
-    public function getCenterOptions(): array
-    {
-        return Center::where('is_active', true)->orderBy('id')->pluck('name', 'id')->toArray();
-    }
-
-    public function updatedCenterId(): void
-    {
-        $this->resetForm();
     }
 
     public function resetForm(): void
@@ -247,10 +229,6 @@ class EntryPage extends Page
 
     public function userCenterId(): ?int
     {
-        if ($this->canSwitchCenter()) {
-            return $this->center_id && array_key_exists($this->center_id, $this->getCenterOptions()) ? $this->center_id : null;
-        }
-
         return auth()->user()?->centers()->value('centers.id');
     }
 

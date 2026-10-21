@@ -10,15 +10,7 @@
     {{-- Center + today stats --}}
     <div class="ep-bar">
         <div class="ep-center">
-            @if ($this->canSwitchCenter())
-                <x-filament::input.wrapper prefix-icon="heroicon-m-building-office-2">
-                    <x-filament::input.select wire:model.live="center_id">
-                        @foreach ($this->getCenterOptions() as $id => $name)
-                            <option value="{{ $id }}">{{ $name }}</option>
-                        @endforeach
-                    </x-filament::input.select>
-                </x-filament::input.wrapper>
-            @elseif ($centerName)
+            @if ($centerName)
                 <x-filament::badge icon="heroicon-m-building-office-2" size="lg">{{ $centerName }}</x-filament::badge>
             @else
                 <x-filament::badge color="danger" icon="heroicon-m-exclamation-triangle">لا يوجد مركز مرتبط بحسابك</x-filament::badge>
