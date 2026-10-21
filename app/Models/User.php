@@ -31,6 +31,8 @@ class User extends Authenticatable implements FilamentUser
     const ROLE_POINT     = 'point';
     const ROLE_ADMIN     = 'admin';
 
+    const DEMO_DOMAIN = 'demo.test';
+
     public function canAccessPanel(Panel $panel): bool
     {
         return $this->is_active

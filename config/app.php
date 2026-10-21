@@ -68,6 +68,12 @@ return [
     'timezone' => 'Asia/Gaza',
 
     /*
+    | One-click login buttons for the @demo.test accounts on the login page.
+    | Test phase only: set DEMO_LOGIN=false to turn them off.
+    */
+    'demo_login' => (bool) env('DEMO_LOGIN', true),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
