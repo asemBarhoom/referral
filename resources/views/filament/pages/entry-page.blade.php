@@ -79,8 +79,8 @@
                         @endphp
                         <x-filament::badge color="success" icon="heroicon-m-check-badge">حالة مسجلة</x-filament::badge>
                         @if ($last)
-                            <span class="ep-meta">
-                                آخر زيارة {{ $last->entry_time?->format('d/m/Y') }} · {{ $last->center?->name }}
+                            <span class="ep-meta" title="{{ $last->entry_time?->format('d/m/Y H:i') }}">
+                                آخر زيارة {{ $last->entry_time?->diffForHumans() }} · {{ $last->center?->name }}
                             </span>
                         @endif
                     @endif
