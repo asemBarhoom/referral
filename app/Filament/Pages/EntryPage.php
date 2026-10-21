@@ -7,6 +7,7 @@ use App\Models\Center;
 use App\Models\ChangeLog;
 use App\Models\Entry;
 use App\Models\EntryProject;
+use App\Models\Project;
 use App\Models\Setting;
 use App\Models\User;
 use Filament\Actions\Action;
@@ -142,13 +143,15 @@ class EntryPage extends Page
             }
         }
 
-        $isUpdate = (bool) $this->today_entry;
+        $title = match (true) {
+            $this->isReferralEdit() => 'تم تحديث التحويل',
+            (bool) $this->today_entry => 'تم تحديث الإدخال',
+            default => 'تم الإدخال بنجاح',
+        };
 
         DB::transaction(fn () => $this->persist($centerId, $projectIds));
 
-        $notification = Notification::make()
-            ->title($isUpdate ? 'تم تحديث الإدخال' : 'تم الإدخال بنجاح')
-            ->success();
+        $notification = Notification::make()->title($title)->success();
 
         if ($skipped) {
             $names = array_intersect_key($this->getAvailableProjects(), array_flip($skipped));
@@ -177,8 +180,12 @@ class EntryPage extends Page
 
         if ($this->today_entry) {
             $old = $this->today_entry->projects()->pluck('projects.id')->map(fn ($id) => (string) $id)->sort()->values()->all();
-            $this->today_entry->projects()->sync($projectIds);
-            $new = collect($projectIds)->sort()->values()->all();
+
+            // Keep projects on the entry that this user cannot see (e.g. added by a point transfer).
+            $hidden = array_diff($old, array_map('strval', array_keys($this->getAvailableProjects())));
+            $new = collect($projectIds)->merge($hidden)->unique()->sort()->values()->all();
+
+            $this->today_entry->projects()->sync($new);
 
             if ($old !== $new) {
                 $this->log('updated_entry_projects', $this->today_entry, ['project_ids' => $old], ['project_ids' => $new]);
@@ -277,6 +284,39 @@ class EntryPage extends Page
             ->orderBy('projects.display_order')
             ->pluck('projects.name', 'projects.id')
             ->toArray();
+    }
+
+    public function isReferralEdit(): bool
+    {
+        return $this->today_entry && $this->entryType() === Entry::TYPE_RECEPTION;
+    }
+
+    public function getLastTransfer(): ?array
+    {
+        if (! $this->isReferralEdit()) {
+            return null;
+        }
+
+        $log = ChangeLog::with('user:id,name')
+            ->where('action', 'transferred_case')
+            ->where('subject_type', Entry::class)
+            ->where('subject_id', $this->today_entry->id)
+            ->latest('changed_at')
+            ->first();
+
+        if (! $log) {
+            return null;
+        }
+
+        $removed = array_diff($log->old_value['project_ids'] ?? [], $log->new_value['project_ids'] ?? []);
+        $names   = Project::whereIn('id', [...$removed, $log->new_value['to_project_id'] ?? 0])->pluck('name', 'id');
+
+        return [
+            'by'   => $log->user?->name,
+            'from' => collect($removed)->map(fn ($id) => $names[$id] ?? null)->filter()->join('، '),
+            'to'   => $names[$log->new_value['to_project_id'] ?? 0] ?? null,
+            'at'   => $log->changed_at->format('H:i'),
+        ];
     }
 
     public function getTodayReferralProjects(): array

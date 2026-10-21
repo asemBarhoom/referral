@@ -63,6 +63,11 @@
                 <div class="ep-status">
                     @if (! $found_beneficiary)
                         <x-filament::badge color="info" icon="heroicon-m-sparkles">حالة جديدة — أول مرة</x-filament::badge>
+                    @elseif ($this->isReferralEdit())
+                        <x-filament::badge color="warning" icon="heroicon-m-arrows-right-left">
+                            محوّلة اليوم {{ $today_entry->entry_time?->format('H:i') }}
+                        </x-filament::badge>
+                        <span class="ep-meta">عدّل المشاريع ثم اضغط تحديث التحويل</span>
                     @elseif ($today_entry)
                         <x-filament::badge color="warning" icon="heroicon-m-clock">
                             أُدخلت اليوم {{ $today_entry->entry_time?->format('H:i') }}
@@ -80,6 +85,17 @@
                         @endif
                     @endif
                 </div>
+
+                @if ($lastTransfer = $this->getLastTransfer())
+                    <div class="ep-referral">
+                        <x-filament::icon icon="heroicon-m-information-circle" class="ep-referral-icon" />
+                        <span>
+                            حوّلها {{ $lastTransfer['by'] }}
+                            @if ($lastTransfer['from']) من {{ $lastTransfer['from'] }} @endif
+                            إلى {{ $lastTransfer['to'] }} الساعة {{ $lastTransfer['at'] }}
+                        </span>
+                    </div>
+                @endif
 
                 @if ($found_beneficiary && $this->transferAction->isVisible())
                     @php $referredTo = $this->getTodayReferralProjects(); @endphp
@@ -130,9 +146,11 @@
                 {{-- Actions --}}
                 <div class="ep-actions">
                     <x-filament::button wire:click="submit" icon="heroicon-m-check" size="xl" class="ep-submit">
-                        {{ $today_entry ? 'تحديث الإدخال' : 'حفظ الإدخال' }}
+                        {{ $this->isReferralEdit() ? 'تحديث التحويل' : ($today_entry ? 'تحديث الإدخال' : 'حفظ الإدخال') }}
                     </x-filament::button>
-                    {{ $this->transferAction }}
+                    @if ($this->transferAction->isVisible())
+                        {{ $this->transferAction }}
+                    @endif
                     <x-filament::button wire:click="resetForm" color="gray" size="xl">
                         إلغاء
                     </x-filament::button>
