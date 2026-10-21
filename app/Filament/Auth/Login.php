@@ -2,6 +2,7 @@
 
 namespace App\Filament\Auth;
 
+use App\Http\Responses\LoginResponse;
 use App\Models\Center;
 use App\Models\User;
 use Filament\Auth\Pages\Login as BaseLogin;
@@ -42,7 +43,7 @@ class Login extends BaseLogin
         Filament::auth()->login($user);
         session()->regenerate();
 
-        $this->redirectIntended(Filament::getUrl());
+        $this->redirect(LoginResponse::url());
     }
 
     // Groups: admins, then one group per center (its reception first, then its points).

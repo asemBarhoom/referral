@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
+use App\Http\Responses\LoginResponse;
 use App\Models\User;
+use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -15,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(LoginResponseContract::class, LoginResponse::class);
     }
 
     /**
