@@ -11,6 +11,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class CenterResource extends Resource
 {
@@ -51,6 +52,14 @@ class CenterResource extends Resource
             Forms\Components\Toggle::make('is_active')
                 ->label('نشط')
                 ->default(true),
+            Forms\Components\CheckboxList::make('projects')
+                ->label('النقاط في هذا المركز')
+                ->helperText('المشاريع التي تظهر لموظفي هذا المركز في شاشة الإدخال.')
+                ->relationship('projects', 'name', fn (Builder $query) => $query->orderBy('display_order'))
+                ->columns(['default' => 2, 'lg' => 4])
+                ->gridDirection('row')
+                ->bulkToggleable()
+                ->columnSpanFull(),
         ]);
     }
 

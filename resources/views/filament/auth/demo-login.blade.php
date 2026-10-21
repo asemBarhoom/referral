@@ -9,9 +9,10 @@
                     <x-filament::button
                         color="gray"
                         size="sm"
-                        wire:click="loginAs({{ $user->id }})"
+                        :class="($user['wide'] ?? false) ? 'demo-login-wide' : null"
+                        wire:click="loginAs({{ $user['id'] }})"
                     >
-                        {{ $user->name }}
+                        {{ $user['label'] }}
                     </x-filament::button>
                 @endforeach
             </div>
@@ -30,5 +31,6 @@
     .demo-login-label { font-size: .8125rem; font-weight: 600; color: var(--gray-700); }
     .dark .demo-login-label { color: var(--gray-300); }
     .demo-login-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+    .demo-login-wide { grid-column: 1 / -1; }
     .demo-login-empty { font-size: .8125rem; color: var(--gray-500); text-align: center; }
 </style>
