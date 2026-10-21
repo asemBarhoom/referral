@@ -55,10 +55,6 @@ class BeneficiaryResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->copyable(),
-                Tables\Columns\TextColumn::make('name')
-                    ->label('الاسم')
-                    ->searchable()
-                    ->placeholder('—'),
                 Tables\Columns\TextColumn::make('first_entry_date')
                     ->label('تاريخ أول إدخال')
                     ->date('d/m/Y')
