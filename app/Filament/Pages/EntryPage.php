@@ -54,7 +54,7 @@ class EntryPage extends Page
 
     public function searchBeneficiary(): void
     {
-        $normalized = preg_replace('/[٠-٩]/u', fn($m) => mb_ord($m, 'UTF-8') - mb_ord('٠', 'UTF-8'), $this->identity_number ?? '');
+        $normalized = preg_replace_callback('/[٠-٩]/u', fn($m) => mb_ord($m[0], 'UTF-8') - mb_ord('٠', 'UTF-8'), $this->identity_number ?? '');
         $normalized = preg_replace('/\s+/', '', $normalized);
 
         if (strlen($normalized) !== 9 || !ctype_digit($normalized)) {
