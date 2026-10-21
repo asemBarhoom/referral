@@ -13,6 +13,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class UserResource extends Resource
 {
@@ -27,7 +28,7 @@ class UserResource extends Resource
 
     public static function form(Schema $schema): Schema
     {
-        return $schema->schema([
+        return $schema->columns(1)->schema([
             Section::make('بيانات الحساب')->schema([
                 Forms\Components\TextInput::make('name')
                     ->label('الاسم')
@@ -39,6 +40,12 @@ class UserResource extends Resource
                     ->maxLength(50)
                     ->unique(ignoreRecord: true)
                     ->ascii(),
+                Forms\Components\TextInput::make('email')
+                    ->label('البريد الإلكتروني (للدخول)')
+                    ->email()
+                    ->required()
+                    ->maxLength(255)
+                    ->unique(ignoreRecord: true),
                 Forms\Components\TextInput::make('password')
                     ->label('كلمة المرور')
                     ->password()
@@ -46,7 +53,7 @@ class UserResource extends Resource
                     ->dehydrated(fn($state) => filled($state))
                     ->required(fn(string $operation): bool => $operation === 'create'),
             ])->columns(2),
-            Section::make('الدور والمراكز')->schema([
+            Section::make('الدور')->schema([
                 Forms\Components\Select::make('role')
                     ->label('النوع')
                     ->options([
@@ -54,22 +61,27 @@ class UserResource extends Resource
                         User::ROLE_POINT     => 'موظف نقطة',
                         User::ROLE_ADMIN     => 'مدير النظام',
                     ])
-                    ->required()
-                    ->live(),
+                    ->required(),
                 Forms\Components\Toggle::make('is_active')
                     ->label('نشط')
-                    ->default(true),
-                Forms\Components\Select::make('centers')
-                    ->label('المراكز المسموحة')
-                    ->multiple()
-                    ->relationship('centers', 'name')
-                    ->preload(),
-                Forms\Components\Select::make('projects')
-                    ->label('المشاريع المسندة')
-                    ->multiple()
-                    ->relationship('projects', 'name')
-                    ->preload()
-                    ->visible(fn($get) => $get('role') === User::ROLE_POINT),
+                    ->default(true)
+                    ->inline(false),
+            ])->columns(2),
+            Section::make('المراكز والمشاريع')->schema([
+                Forms\Components\CheckboxList::make('centers')
+                    ->label('المراكز')
+                    ->helperText('إذا ارتبط بأكثر من مركز، يختار مركزه مرة واحدة عند بداية العمل.')
+                    ->relationship('centers', 'name', fn (Builder $query) => $query->where('is_active', true)->orderBy('id'))
+                    ->columns(2)
+                    ->gridDirection('row')
+                    ->required(),
+                Forms\Components\CheckboxList::make('projects')
+                    ->label('المشاريع')
+                    ->helperText('اتركها فارغة ليظهر له كل مشاريع المركز.')
+                    ->relationship('projects', 'name', fn (Builder $query) => $query->where('is_active', true)->orderBy('display_order'))
+                    ->columns(['default' => 2, 'lg' => 4])
+                    ->gridDirection('row')
+                    ->bulkToggleable(),
             ]),
         ]);
     }
@@ -98,8 +110,14 @@ class UserResource extends Resource
                 Tables\Columns\IconColumn::make('is_active')->label('نشط')->boolean(),
                 Tables\Columns\TextColumn::make('centers.name')
                     ->label('المراكز')
-                    ->listWithLineBreaks()
-                    ->limitList(2),
+                    ->badge()
+                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('projects.name')
+                    ->label('المشاريع')
+                    ->badge()
+                    ->color('gray')
+                    ->limitList(3)
+                    ->placeholder('كل مشاريع المركز'),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('role')

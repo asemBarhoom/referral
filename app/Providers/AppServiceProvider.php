@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
+use App\Models\User;
 use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -25,5 +27,8 @@ class AppServiceProvider extends ServiceProvider
 
         // Register Shield-generated policies, including RolePolicy.
         FilamentShield::enforcePolicies();
+
+        // Admins have full access; policies only gate the other roles.
+        Gate::before(fn (User $user) => $user->role === User::ROLE_ADMIN ? true : null);
     }
 }

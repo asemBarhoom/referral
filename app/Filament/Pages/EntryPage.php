@@ -31,6 +31,9 @@ class EntryPage extends Page
     public ?string $identity_number = null;
     public ?string $name = null;
     public array $selected_projects = [];
+    public ?int $center_id = null;
+
+    private ?array $userCenters = null;
 
     public ?Beneficiary $found_beneficiary = null;
     public ?Entry $today_entry = null;
@@ -50,6 +53,26 @@ class EntryPage extends Page
     public function mount(): void
     {
         $this->reset();
+        $this->center_id = $this->userCenterId();
+    }
+
+    public function getUserCenters(): array
+    {
+        return $this->userCenters ??= auth()->user()->centers()
+            ->where('centers.is_active', true)
+            ->orderBy('centers.id')
+            ->pluck('centers.name', 'centers.id')
+            ->toArray();
+    }
+
+    public function updatedCenterId(): void
+    {
+        if ($this->center_id && array_key_exists($this->center_id, $this->getUserCenters())) {
+            session(['entry_center_id' => $this->center_id]);
+        }
+
+        $this->center_id = $this->userCenterId();
+        $this->resetForm();
     }
 
     public function getSubheading(): ?string
@@ -110,6 +133,11 @@ class EntryPage extends Page
 
         $normalized = $this->identity_number;
         if (!$normalized || strlen($normalized) !== 9) return;
+
+        $this->selected_projects = array_values(array_intersect(
+            $this->selected_projects,
+            array_map('strval', array_keys($this->getAvailableProjects())),
+        ));
 
         if (empty($this->selected_projects)) {
             Notification::make()->title('اختر مشروعاً واحداً على الأقل')->danger()->send();
@@ -209,19 +237,15 @@ class EntryPage extends Page
 
     public function getAvailableProjects(): array
     {
-        $user = auth()->user();
-        $centerId = $this->userCenterId();
-
-        if ($user->role === User::ROLE_POINT) {
-            return $user->projects()->where('projects.is_active', true)->orderBy('projects.display_order')->pluck('projects.name', 'projects.id')->toArray();
-        }
-
-        // reception and admin see center projects
-        $center = Center::find($centerId);
+        $center = Center::find($this->userCenterId());
         if (!$center) return [];
+
+        $userProjectIds = auth()->user()->projects()->pluck('projects.id');
+
         return $center->projects()
             ->where('projects.is_active', true)
             ->wherePivot('is_active', true)
+            ->when($userProjectIds->isNotEmpty(), fn ($q) => $q->whereIn('projects.id', $userProjectIds))
             ->orderBy('projects.display_order')
             ->pluck('projects.name', 'projects.id')
             ->toArray();
@@ -229,7 +253,10 @@ class EntryPage extends Page
 
     public function userCenterId(): ?int
     {
-        return auth()->user()?->centers()->value('centers.id');
+        $centers = $this->getUserCenters();
+        $chosen  = session('entry_center_id');
+
+        return $chosen && array_key_exists($chosen, $centers) ? $chosen : array_key_first($centers);
     }
 
     public function getTodayStats(): array
